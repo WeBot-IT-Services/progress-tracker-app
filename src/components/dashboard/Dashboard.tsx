@@ -1,0 +1,306 @@
+import React from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { 
+  DollarSign, 
+  Wrench, 
+  Factory, 
+  Hammer, 
+  BarChart3, 
+  MessageSquare,
+  LogOut,
+  User
+} from 'lucide-react';
+
+const Dashboard: React.FC = () => {
+  const { currentUser, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  const modules = [
+    {
+      id: 'sales',
+      title: 'Sales',
+      subtitle: 'Submit new projects',
+      icon: DollarSign,
+      color: 'bg-green-500',
+      hoverColor: 'hover:bg-green-600',
+      path: '/sales',
+      roles: ['admin', 'sales']
+    },
+    {
+      id: 'dne',
+      title: 'DNE',
+      subtitle: 'Design & Engineering',
+      icon: Wrench,
+      color: 'bg-blue-500',
+      hoverColor: 'hover:bg-blue-600',
+      path: '/design',
+      roles: ['admin', 'designer']
+    },
+    {
+      id: 'production',
+      title: 'Production',
+      subtitle: 'Manage production',
+      icon: Factory,
+      color: 'bg-orange-500',
+      hoverColor: 'hover:bg-orange-600',
+      path: '/production',
+      roles: ['admin', 'production']
+    },
+    {
+      id: 'installation',
+      title: 'Installation',
+      subtitle: 'Track installation',
+      icon: Hammer,
+      color: 'bg-purple-500',
+      hoverColor: 'hover:bg-purple-600',
+      path: '/installation',
+      roles: ['admin', 'installation']
+    },
+    {
+      id: 'tracker',
+      title: 'Master Tracker',
+      subtitle: 'Project overview',
+      icon: BarChart3,
+      color: 'bg-red-500',
+      hoverColor: 'hover:bg-red-600',
+      path: '/tracker',
+      roles: ['admin', 'sales', 'designer', 'production', 'installation']
+    },
+    {
+      id: 'complaints',
+      title: 'Complaints',
+      subtitle: 'Submit complaints',
+      icon: MessageSquare,
+      color: 'bg-gray-600',
+      hoverColor: 'hover:bg-gray-700',
+      path: '/complaints',
+      roles: ['admin', 'sales', 'designer', 'production', 'installation']
+    }
+  ];
+
+  const accessibleModules = modules.filter(module => 
+    module.roles.includes(currentUser?.role || 'sales')
+  );
+
+  const handleModuleClick = (path: string) => {
+    navigate(path);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      {/* Enhanced Header */}
+      <div className="bg-white/90 backdrop-blur-xl shadow-xl border-b border-white/30 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16 sm:h-20">
+            {/* Logo Section */}
+            <div className="flex items-center space-x-3 sm:space-x-4">
+              <div className="flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 rounded-xl shadow-lg hover:scale-105 transition-transform duration-200">
+                <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+              </div>
+              <div className="hidden sm:block">
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+                  Progress Tracker
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-600">Mysteel Construction Management</p>
+              </div>
+              <div className="sm:hidden">
+                <h1 className="text-lg font-bold text-gray-900">Progress Tracker</h1>
+              </div>
+            </div>
+
+            {/* User Section */}
+            <div className="flex items-center space-x-2 sm:space-x-4">
+              {/* User Info */}
+              <div className="flex items-center space-x-2 sm:space-x-3 bg-white/70 rounded-xl px-2 sm:px-4 py-2 shadow-sm border border-white/50">
+                <div className="flex items-center justify-center w-8 h-8 bg-gradient-to-r from-green-400 to-blue-500 rounded-lg">
+                  <User className="h-3 w-3 sm:h-4 sm:w-4 text-white" />
+                </div>
+                <div className="hidden sm:block">
+                  <span className="text-sm font-medium text-gray-900">{currentUser?.name}</span>
+                  <span className="block text-xs text-gray-500 capitalize">{currentUser?.role} Department</span>
+                </div>
+                <div className="sm:hidden">
+                  <span className="text-xs font-medium text-gray-900 capitalize">{currentUser?.role}</span>
+                </div>
+              </div>
+
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                className="flex items-center space-x-1 sm:space-x-2 bg-red-50 hover:bg-red-100 text-red-600 px-2 sm:px-4 py-2 rounded-xl transition-all duration-200 hover:shadow-md group"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline text-sm font-medium">Logout</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Enhanced Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-12">
+        {/* Welcome Section */}
+        <div className="mb-8 sm:mb-12">
+          <div className="text-center mb-6 sm:mb-8 animate-fade-in">
+            <div className="mb-4 sm:mb-6">
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-2 sm:mb-4">
+                Welcome back, {currentUser?.name?.split(' ')[0]}! 👋
+              </h2>
+              <p className="text-lg sm:text-xl text-gray-600 capitalize mb-4">
+                {currentUser?.role} Department Dashboard
+              </p>
+
+              {/* Status Indicator */}
+              <div className="inline-flex items-center px-3 sm:px-4 py-2 bg-gradient-to-r from-green-100 to-emerald-100 text-green-800 rounded-full text-sm font-medium shadow-sm border border-green-200">
+                <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                System Online • All modules operational
+              </div>
+            </div>
+
+            {/* Quick Stats Bar */}
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 max-w-md mx-auto">
+              <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3 sm:p-4 shadow-sm border border-white/50">
+                <div className="text-lg sm:text-2xl font-bold text-blue-600">12</div>
+                <div className="text-xs sm:text-sm text-gray-600">Active</div>
+              </div>
+              <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3 sm:p-4 shadow-sm border border-white/50">
+                <div className="text-lg sm:text-2xl font-bold text-green-600">8</div>
+                <div className="text-xs sm:text-sm text-gray-600">Complete</div>
+              </div>
+              <div className="bg-white/70 backdrop-blur-sm rounded-xl p-3 sm:p-4 shadow-sm border border-white/50">
+                <div className="text-lg sm:text-2xl font-bold text-orange-600">5</div>
+                <div className="text-xs sm:text-sm text-gray-600">Production</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Enhanced Module Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 mb-8 sm:mb-12">
+          {accessibleModules.map((module, index) => {
+            const IconComponent = module.icon;
+            return (
+              <div
+                key={module.id}
+                onClick={() => handleModuleClick(module.path)}
+                className="group relative bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl p-6 sm:p-8 shadow-lg hover:shadow-2xl transition-all duration-500 cursor-pointer transform hover:-translate-y-2 hover:scale-[1.02] border border-white/50 animate-fade-in"
+                style={{ animationDelay: `${index * 100}ms` }}
+              >
+                {/* Gradient Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+
+                {/* Glow Effect */}
+                <div className={`absolute inset-0 ${module.color} rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-10 blur-xl transition-opacity duration-300`}></div>
+
+                <div className="relative z-10">
+                  {/* Icon */}
+                  <div className={`inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 ${module.color} rounded-2xl mb-4 sm:mb-6 shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
+                    <IconComponent className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
+                  </div>
+
+                  {/* Content */}
+                  <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 sm:mb-3 group-hover:text-gray-800 transition-colors">
+                    {module.title}
+                  </h3>
+                  <p className="text-gray-600 mb-4 text-sm sm:text-base group-hover:text-gray-700 transition-colors">
+                    {module.subtitle}
+                  </p>
+
+                  {/* Action */}
+                  <div className="flex items-center text-blue-600 font-medium group-hover:text-blue-700 transition-colors text-sm sm:text-base">
+                    <span>Access Module</span>
+                    <svg className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Mobile Touch Indicator */}
+                <div className="sm:hidden absolute top-4 right-4 w-2 h-2 bg-blue-500 rounded-full opacity-50"></div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Enhanced Detailed Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl p-6 sm:p-8 shadow-lg border border-white/50 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group">
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <div className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+                <BarChart3 className="h-6 w-6 sm:h-7 sm:w-7 text-white" />
+              </div>
+              <div className="text-right">
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">12</p>
+                <p className="text-xs sm:text-sm text-blue-600 font-medium">+2 this week</p>
+              </div>
+            </div>
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">Active Projects</h3>
+            <p className="text-gray-600 text-sm">Currently in progress across all departments</p>
+
+            {/* Progress Bar */}
+            <div className="mt-4 bg-gray-200 rounded-full h-2">
+              <div className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full w-3/4 transition-all duration-500"></div>
+            </div>
+          </div>
+
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl p-6 sm:p-8 shadow-lg border border-white/50 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group">
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <div className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-green-500 to-green-600 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+                <DollarSign className="h-6 w-6 sm:h-7 sm:w-7 text-white" />
+              </div>
+              <div className="text-right">
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900 group-hover:text-green-600 transition-colors">8</p>
+                <p className="text-xs sm:text-sm text-green-600 font-medium">+3 this month</p>
+              </div>
+            </div>
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">Completed Projects</h3>
+            <p className="text-gray-600 text-sm">Successfully delivered this month</p>
+
+            {/* Progress Bar */}
+            <div className="mt-4 bg-gray-200 rounded-full h-2">
+              <div className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full w-4/5 transition-all duration-500"></div>
+            </div>
+          </div>
+
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl p-6 sm:p-8 shadow-lg border border-white/50 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group sm:col-span-2 lg:col-span-1">
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <div className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+                <Factory className="h-6 w-6 sm:h-7 sm:w-7 text-white" />
+              </div>
+              <div className="text-right">
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900 group-hover:text-orange-600 transition-colors">5</p>
+                <p className="text-xs sm:text-sm text-orange-600 font-medium">On schedule</p>
+              </div>
+            </div>
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">In Production</h3>
+            <p className="text-gray-600 text-sm">Manufacturing and assembly phase</p>
+
+            {/* Progress Bar */}
+            <div className="mt-4 bg-gray-200 rounded-full h-2">
+              <div className="bg-gradient-to-r from-orange-500 to-orange-600 h-2 rounded-full w-3/5 transition-all duration-500"></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile-Optimized Footer */}
+        <div className="mt-8 sm:mt-12 text-center">
+          <div className="inline-flex items-center px-4 py-2 bg-white/60 backdrop-blur-sm rounded-full text-xs sm:text-sm text-gray-600 border border-white/50">
+            <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+            Last updated: {new Date().toLocaleTimeString()}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;
