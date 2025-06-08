@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Verification - Mysteel Progress Tracker</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+        .step {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 10px;
+            border-left: 4px solid #4CAF50;
+        }
+        .command {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            font-size: 16px;
+            cursor: pointer;
+            border: 2px solid #333;
+            transition: all 0.3s ease;
+            user-select: all;
+        }
+        .command:hover {
+            border-color: #4CAF50;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+        }
+        .credentials {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .credential-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            font-family: monospace;
+        }
+        .btn {
+            background: #4CAF50;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px;
+            transition: all 0.3s ease;
+        }
+        .btn:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+        .btn-secondary {
+            background: #2196F3;
+        }
+        .btn-secondary:hover {
+            background: #1976D2;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: bold;
+        }
+        .success { background: rgba(76, 175, 80, 0.2); border: 1px solid #4CAF50; }
+        .error { background: rgba(244, 67, 54, 0.2); border: 1px solid #f44336; }
+        .warning { background: rgba(255, 193, 7, 0.2); border: 1px solid #ffc107; }
+        .info { background: rgba(33, 150, 243, 0.2); border: 1px solid #2196F3; }
+        .checklist {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .checklist-item {
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .checklist-item:last-child {
+            border-bottom: none;
+        }
+        .highlight {
+            background: rgba(255, 255, 0, 0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Database Setup & Verification Guide</h1>
+        <p>Complete setup instructions for the Mysteel Progress Tracker application.</p>
+        
+        <div class="step">
+            <h3>🎯 Step 1: Open Application Console</h3>
+            <p>First, open the main application and access the developer console:</p>
+            <button class="btn" onclick="openApp()">Open Application (http://localhost:5173)</button>
+            <p><strong>Then:</strong> Press <span class="highlight">F12</span> → Click <span class="highlight">Console</span> tab</p>
+        </div>
+        
+        <div class="step">
+            <h3>⚙️ Step 2: Execute Complete Setup</h3>
+            <p>Copy and paste this command in the console (click to select all):</p>
+            <div class="command" onclick="selectText(this)">setupCompleteDatabase()</div>
+            <p><strong>What this does:</strong></p>
+            <ul>
+                <li>✅ Creates 5 test user accounts in Firebase Authentication</li>
+                <li>✅ Creates user profiles in Firestore with proper roles</li>
+                <li>✅ Seeds 6 sample projects with realistic data</li>
+                <li>✅ Adds 5 customer complaints with different priorities</li>
+                <li>✅ Creates milestones for timeline visualization</li>
+                <li>✅ Populates all 8 modules with sample data</li>
+            </ul>
+        </div>
+        
+        <div class="step">
+            <h3>🔍 Step 3: Verify Setup</h3>
+            <p>After setup completes, run this verification command:</p>
+            <div class="command" onclick="selectText(this)">verifyDatabase()</div>
+            <p>This will check that all data was created successfully.</p>
+        </div>
+        
+        <div class="credentials">
+            <h3>🔑 Test Account Credentials</h3>
+            <p>Use these accounts to test role-based access control:</p>
+            <div class="credential-row">
+                <span><strong>Admin:</strong></span>
+                <span>admin@mysteel.com / admin123</span>
+            </div>
+            <div class="credential-row">
+                <span><strong>Sales:</strong></span>
+                <span>sales@mysteel.com / sales123</span>
+            </div>
+            <div class="credential-row">
+                <span><strong>Designer:</strong></span>
+                <span>designer@mysteel.com / designer123</span>
+            </div>
+            <div class="credential-row">
+                <span><strong>Production:</strong></span>
+                <span>production@mysteel.com / production123</span>
+            </div>
+            <div class="credential-row">
+                <span><strong>Installation:</strong></span>
+                <span>installation@mysteel.com / installation123</span>
+            </div>
+        </div>
+        
+        <div class="checklist">
+            <h3>🧪 Testing Checklist</h3>
+            <div class="checklist-item">
+                <strong>1. Role-Based Access Control</strong>
+                <ul>
+                    <li>Login as Admin → Should see all 8 modules + project amounts</li>
+                    <li>Login as Sales → Should see Sales + Dashboard only</li>
+                    <li>Login as Designer → Should see Design + Dashboard only</li>
+                    <li>Login as Production → Should see Production + Dashboard only</li>
+                    <li>Login as Installation → Should see Installation + Dashboard only</li>
+                </ul>
+            </div>
+            <div class="checklist-item">
+                <strong>2. Master Tracker Timeline</strong>
+                <ul>
+                    <li>Login as Admin → Navigate to Master Tracker</li>
+                    <li>Verify timeline shows all 6 sample projects</li>
+                    <li>Test filtering by status (DNE, Production, Installation, Completed)</li>
+                    <li>Test search functionality</li>
+                </ul>
+            </div>
+            <div class="checklist-item">
+                <strong>3. Real-time Updates</strong>
+                <ul>
+                    <li>Open two browser windows</li>
+                    <li>Login with different roles in each window</li>
+                    <li>Make changes in one window</li>
+                    <li>Verify updates appear in the other window</li>
+                </ul>
+            </div>
+            <div class="checklist-item">
+                <strong>4. Module Functionality</strong>
+                <ul>
+                    <li>Test CRUD operations in each module</li>
+                    <li>Verify file upload functionality (Installation module)</li>
+                    <li>Test complaints management</li>
+                    <li>Check dashboard statistics</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="step">
+            <h3>🚨 Troubleshooting</h3>
+            <p><strong>If setup fails:</strong></p>
+            <div class="command" onclick="selectText(this)">createTestUsers()</div>
+            <p>Wait 3 seconds, then:</p>
+            <div class="command" onclick="selectText(this)">seedData()</div>
+            <p>Then display credentials:</p>
+            <div class="command" onclick="selectText(this)">showLoginCredentials()</div>
+        </div>
+        
+        <div class="step">
+            <h3>📊 Sample Data Overview</h3>
+            <p><strong>Projects Created:</strong></p>
+            <ul>
+                <li>Mysteel Office Complex (Production, 65%, RM 2.5M)</li>
+                <li>Industrial Warehouse (DNE, 25%, RM 1.8M)</li>
+                <li>Residential Tower (Installation, 85%, RM 4.2M)</li>
+                <li>Shopping Mall Renovation (Completed, 100%, RM 3.1M)</li>
+                <li>School Building (Production, 45%, RM 1.5M)</li>
+                <li>Hospital Wing Extension (DNE, 15%, RM 2.8M)</li>
+            </ul>
+            
+            <p><strong>Additional Data:</strong></p>
+            <ul>
+                <li>5 Customer complaints with various priorities</li>
+                <li>4 Milestones per project for timeline visualization</li>
+                <li>Sales proposals and negotiations</li>
+                <li>Design specifications and approvals</li>
+                <li>Production schedules and status updates</li>
+                <li>Installation progress and photo placeholders</li>
+            </ul>
+        </div>
+        
+        <div id="status"></div>
+        
+        <div style="text-align: center; margin-top: 30px;">
+            <button class="btn" onclick="openApp()">Open Application</button>
+            <button class="btn btn-secondary" onclick="copyAllCredentials()">Copy All Credentials</button>
+        </div>
+    </div>
+    
+    <script>
+        function openApp() {
+            window.open('http://localhost:5173', '_blank');
+            showStatus('Application opened! Press F12 to open console and run: setupCompleteDatabase()', 'info');
+        }
+        
+        function selectText(element) {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            
+            // Try to copy to clipboard
+            try {
+                document.execCommand('copy');
+                showStatus('Command copied to clipboard!', 'success');
+            } catch (err) {
+                showStatus('Command selected. Press Ctrl+C to copy.', 'info');
+            }
+        }
+        
+        function copyAllCredentials() {
+            const credentials = `Admin: admin@mysteel.com / admin123
+Sales: sales@mysteel.com / sales123
+Designer: designer@mysteel.com / designer123
+Production: production@mysteel.com / production123
+Installation: installation@mysteel.com / installation123`;
+            
+            navigator.clipboard.writeText(credentials).then(() => {
+                showStatus('All credentials copied to clipboard!', 'success');
+            }).catch(() => {
+                showStatus('Please manually copy the credentials from the table above.', 'warning');
+            });
+        }
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
+            setTimeout(() => {
+                status.innerHTML = '';
+            }, 5000);
+        }
+        
+        // Show initial instructions
+        setTimeout(() => {
+            showStatus('Ready! Click "Open Application" and follow the steps above.', 'info');
+        }, 1000);
+    </script>
+</body>
+</html>

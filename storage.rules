@@ -1,0 +1,157 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions for role-based access control
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserRole() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'admin';
+    }
+    
+    function isSales() {
+      return isAuthenticated() && getUserRole() == 'sales';
+    }
+    
+    function isDesigner() {
+      return isAuthenticated() && getUserRole() == 'designer';
+    }
+    
+    function isProduction() {
+      return isAuthenticated() && getUserRole() == 'production';
+    }
+    
+    function isInstallation() {
+      return isAuthenticated() && getUserRole() == 'installation';
+    }
+    
+    // File size limits (in bytes)
+    function isValidFileSize() {
+      return resource.size < 50 * 1024 * 1024; // 50MB limit
+    }
+    
+    // Valid file types for design files
+    function isValidDesignFile() {
+      return resource.contentType.matches('image/.*') ||
+             resource.contentType.matches('application/pdf') ||
+             resource.contentType.matches('application/.*dwg.*') ||
+             resource.contentType.matches('application/.*doc.*') ||
+             resource.contentType.matches('application/.*xls.*') ||
+             resource.contentType.matches('text/.*');
+    }
+    
+    // Valid image types for installation photos
+    function isValidImage() {
+      return resource.contentType.matches('image/.*');
+    }
+    
+    // Design files - uploaded by Design team
+    match /design/{projectId}/{fileName} {
+      // Read permissions - anyone authenticated can view design files
+      allow read: if isAuthenticated();
+      
+      // Write permissions - Admin and Designer can upload design files
+      allow write: if isAuthenticated() && 
+                      (isAdmin() || isDesigner()) && 
+                      isValidDesignFile() && 
+                      isValidFileSize();
+      
+      // Delete permissions - Admin and Designer only
+      allow delete: if isAdmin() || isDesigner();
+    }
+    
+    // Installation photos - uploaded by Installation team
+    match /installation/{projectId}/{fileName} {
+      // Read permissions - anyone authenticated can view installation photos
+      allow read: if isAuthenticated();
+      
+      // Write permissions - Admin and Installation team can upload photos
+      allow write: if isAuthenticated() && 
+                      (isAdmin() || isInstallation()) && 
+                      isValidImage() && 
+                      isValidFileSize();
+      
+      // Delete permissions - Admin and Installation team only
+      allow delete: if isAdmin() || isInstallation();
+    }
+    
+    // Production files - uploaded by Production team
+    match /production/{projectId}/{fileName} {
+      // Read permissions - anyone authenticated can view production files
+      allow read: if isAuthenticated();
+      
+      // Write permissions - Admin and Production team can upload files
+      allow write: if isAuthenticated() && 
+                      (isAdmin() || isProduction()) && 
+                      isValidDesignFile() && 
+                      isValidFileSize();
+      
+      // Delete permissions - Admin and Production team only
+      allow delete: if isAdmin() || isProduction();
+    }
+    
+    // User avatars - users can upload their own avatars
+    match /avatars/{userId} {
+      // Read permissions - anyone authenticated can view avatars
+      allow read: if isAuthenticated();
+      
+      // Write permissions - users can upload their own avatar, Admin can upload any
+      allow write: if isAuthenticated() && 
+                      (isAdmin() || request.auth.uid == userId) && 
+                      isValidImage() && 
+                      resource.size < 5 * 1024 * 1024; // 5MB limit for avatars
+      
+      // Delete permissions - users can delete their own avatar, Admin can delete any
+      allow delete: if isAdmin() || request.auth.uid == userId;
+    }
+    
+    // Complaint attachments - anyone can upload complaint files
+    match /complaints/{complaintId}/{fileName} {
+      // Read permissions - anyone authenticated can view complaint files
+      allow read: if isAuthenticated();
+      
+      // Write permissions - anyone authenticated can upload complaint files
+      allow write: if isAuthenticated() && 
+                      (isValidDesignFile() || isValidImage()) && 
+                      isValidFileSize();
+      
+      // Delete permissions - Admin only
+      allow delete: if isAdmin();
+    }
+    
+    // System files - Admin only
+    match /system/{fileName} {
+      allow read, write, delete: if isAdmin();
+    }
+    
+    // Backup files - Admin only
+    match /backups/{fileName} {
+      allow read, write, delete: if isAdmin();
+    }
+    
+    // Temporary files - users can upload temporary files (auto-deleted after 24 hours)
+    match /temp/{userId}/{fileName} {
+      // Read permissions - user can read their own temp files, Admin can read all
+      allow read: if isAuthenticated() && (isAdmin() || request.auth.uid == userId);
+      
+      // Write permissions - user can upload their own temp files
+      allow write: if isAuthenticated() && 
+                      request.auth.uid == userId && 
+                      isValidFileSize();
+      
+      // Delete permissions - user can delete their own temp files, Admin can delete all
+      allow delete: if isAuthenticated() && (isAdmin() || request.auth.uid == userId);
+    }
+    
+    // Default deny rule for any other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
