@@ -1,33 +1,114 @@
 import React, { useState, useEffect } from 'react';
-import { Wrench, Check, Upload, CheckCircle, FileText } from 'lucide-react';
+import { Wrench, CheckCircle, ArrowRight, Lock, Unlock } from 'lucide-react';
 import ModuleHeader from '../common/ModuleHeader';
 import { useAuth } from '../../contexts/AuthContext';
-import { projectsService, fileService, type Project } from '../../services/firebaseService';
+import { projectsService, type Project } from '../../services/firebaseService';
+import { workflowService } from '../../services/workflowService';
+import { getModulePermissions } from '../../utils/permissions';
+import { useDocumentLock, usePresence, useCollaborationCleanup } from '../../hooks/useCollaboration';
+import { CollaborationStatus, CollaborationBanner } from '../collaboration/CollaborationIndicators';
 
 const DesignModule: React.FC = () => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'projects' | 'completed'>('projects');
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [completedProjects, setCompletedProjects] = useState<Project[]>([]);
+  const [activeTab, setActiveTab] = useState<'wip' | 'history'>('wip');
+  const [wipProjects, setWipProjects] = useState<Project[]>([]);
+  const [historyProjects, setHistoryProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [showFileUpload, setShowFileUpload] = useState(false);
-  const [uploadingFile, setUploadingFile] = useState(false);
-  const [files, setFiles] = useState<FileList | null>(null);
+
+  // Collaboration state
+  const [selectedProjectForEdit, setSelectedProjectForEdit] = useState<string>('');
+
+  // Collaboration hooks
+  const {
+    isLocked,
+    lockOwner,
+    isLockOwner,
+    acquireLock,
+    releaseLock,
+    lockError
+  } = useDocumentLock(selectedProjectForEdit, 'project', currentUser as any);
+
+  const { presence, updatePresence, removePresence } = usePresence(
+    selectedProjectForEdit,
+    'project',
+    currentUser as any
+  );
+
+  // Cleanup collaboration on unmount
+  useCollaborationCleanup(selectedProjectForEdit, 'project', currentUser as any);
+
+
+  // Get user permissions
+  const permissions = getModulePermissions(currentUser?.role || 'designer', 'design');
 
   // Load projects from Firebase
   useEffect(() => {
     const loadProjects = async () => {
       try {
         setLoading(true);
-        const [dneProjects, completedProjectsData] = await Promise.all([
-          projectsService.getProjectsByStatus('DNE'),
-          projectsService.getProjectsByStatus('Completed')
-        ]);
-        setProjects(dneProjects);
-        setCompletedProjects(completedProjectsData);
+        const allProjects = await projectsService.getProjects();
+
+        // Validate and clean project data
+        const validProjects = allProjects.filter(project => {
+          // Ensure project has required fields
+          if (!project.id || !project.projectName) {
+            console.warn('Invalid project data:', project);
+            return false;
+          }
+          return true;
+        }).map(project => {
+          // Ensure deliveryDate is properly formatted
+          if (project.deliveryDate && typeof project.deliveryDate === 'string') {
+            try {
+              new Date(project.deliveryDate);
+            } catch (error) {
+              console.warn('Invalid delivery date for project:', project.id, project.deliveryDate);
+              project.deliveryDate = new Date().toISOString();
+            }
+          }
+
+          // Ensure designData has proper structure
+          if (!project.designData) {
+            project.designData = {
+              status: 'pending',
+              lastModified: new Date(),
+              hasFlowedFromPartial: false
+            };
+          }
+
+          return project;
+        });
+
+        // WIP: Projects in DNE status that are NOT fully completed
+        // This includes: pending, partial (regardless of flow status), but NOT completed
+        // Also includes projects without designData (they should default to pending)
+        const wipProjectsData = validProjects.filter(project => {
+          const isDNE = project.status === 'dne';
+          const designStatus = project.designData?.status;
+
+          // If no designData exists, treat as pending (should be in WIP)
+          // If designData exists, only exclude if status is 'completed'
+          const shouldBeInWIP = isDNE && (
+            !designStatus || // No designData = pending = WIP
+            designStatus === 'pending' ||
+            designStatus === 'partial'
+          );
+
+          return shouldBeInWIP;
+        });
+
+        // History: Only projects that have been marked as fully completed
+        const historyProjectsData = validProjects.filter(project =>
+          project.designData?.status === 'completed'
+        );
+
+        setWipProjects(wipProjectsData);
+        setHistoryProjects(historyProjectsData);
       } catch (error) {
         console.error('Error loading design projects:', error);
+        // Set empty arrays on error to prevent UI issues
+        setWipProjects([]);
+        setHistoryProjects([]);
       } finally {
         setLoading(false);
       }
@@ -36,62 +117,203 @@ const DesignModule: React.FC = () => {
     loadProjects();
   }, []);
 
-  const handleStatusChange = async (projectId: string, newStatus: 'Production' | 'Completed') => {
+
+
+  // Manual unlock function for administrators
+  const handleManualUnlock = async (projectId: string) => {
+    if (currentUser?.role !== 'admin') {
+      alert('Only administrators can manually unlock projects.');
+      return;
+    }
+
     try {
-      await projectsService.updateProject(projectId, {
-        status: newStatus,
-        progress: newStatus === 'Completed' ? 100 : 50
-      });
-
-      // Reload projects
-      const [dneProjects, completedProjectsData] = await Promise.all([
-        projectsService.getProjectsByStatus('DNE'),
-        projectsService.getProjectsByStatus('Completed')
-      ]);
-      setProjects(dneProjects);
-      setCompletedProjects(completedProjectsData);
-
-      console.log(`Updated project ${projectId} to ${newStatus}`);
+      // Set the project for unlock and force release the lock (admin override)
+      setSelectedProjectForEdit(projectId);
+      await releaseLock();
+      await removePresence();
+      setSelectedProjectForEdit('');
+      alert('Project unlocked successfully.');
+      // Reload projects to refresh lock status
+      await loadProjects();
     } catch (error) {
-      console.error('Error updating project status:', error);
-      alert('Failed to update project status. Please try again.');
+      console.error('Error unlocking project:', error);
+      alert('Failed to unlock project. Please try again.');
     }
   };
 
-  const handleFileUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!files || !selectedProject || !currentUser) return;
+  const handleDesignStatusChange = async (projectId: string, designStatus: 'pending' | 'partial' | 'completed', flowTo?: 'production' | 'installation', deliveryDate?: Date) => {
+    if (!permissions.canEdit) {
+      alert('You do not have permission to update design status.');
+      return;
+    }
+
+    // Check if project is locked by another user
+    if (isLocked && !isLockOwner) {
+      alert(`Project is currently being edited by ${lockOwner?.userName}. Please wait for them to finish.`);
+      return;
+    }
 
     try {
-      setUploadingFile(true);
-      const uploadPromises = Array.from(files).map(async (file) => {
-        const filePath = `design/${selectedProject.id}/${Date.now()}_${file.name}`;
-        return await fileService.uploadFile(file, filePath);
-      });
+      const project = wipProjects.find(p => p.id === projectId) || historyProjects.find(p => p.id === projectId);
+      if (!project) return;
 
-      const uploadedUrls = await Promise.all(uploadPromises);
+      const currentDesignData = project.designData || { status: 'pending', lastModified: new Date(), hasFlowedFromPartial: false };
 
-      // Update project with file URLs
-      const currentFiles = selectedProject.files || [];
-      await projectsService.updateProject(selectedProject.id!, {
-        files: [...currentFiles, ...uploadedUrls]
-      });
+      // Handle different status changes
+      if (designStatus === 'partial') {
+        // Partial completed - flow to production or installation but KEEP in DNE status
+        const targetModule = flowTo || 'production'; // Default to production if not specified
+
+        // Update design data to mark as partial but KEEP in DNE status and WIP
+        const updates: any = {
+          designData: {
+            ...currentDesignData,
+            status: 'partial',
+            partialCompletedAt: new Date(),
+            deliveryDate: deliveryDate || new Date(), // Add DNE Completed Date
+            hasFlowedFromPartial: true,
+            lastModified: new Date()
+          }
+        };
+        await projectsService.updateProject(projectId, updates);
+        console.log(`Project ${projectId} marked as partial - staying in DNE/WIP with delivery date:`, deliveryDate);
+
+        // Create production milestones if flowing to production
+        if (targetModule === 'production') {
+          try {
+            await projectsService.createDefaultProductionMilestones(projectId);
+            console.log(`Default production milestones created for project ${projectId}`);
+          } catch (error) {
+            console.error('Error creating default production milestones:', error);
+          }
+        }
+
+        alert(`Design marked as partial completed! Default ${targetModule} milestones created. Project remains in WIP for further work.`);
+
+        // Reload projects to reflect changes
+        await loadProjects();
+      } else if (designStatus === 'completed') {
+        // Completed - flow to production or installation AND move to history
+        const targetModule = flowTo || 'production'; // Default to production if not specified
+        console.log(`🎯 Design completion flow: ${projectId} → ${targetModule}`);
+
+        // First update design data to mark as completed
+        const updates: any = {
+          designData: {
+            ...currentDesignData,
+            status: 'completed',
+            completedAt: new Date(),
+            deliveryDate: deliveryDate || new Date(), // Add DNE Completed Date
+            lastModified: new Date()
+          }
+        };
+        console.log(`📝 Updating design data:`, updates);
+        await projectsService.updateProject(projectId, updates);
+        console.log(`✅ Project ${projectId} marked as completed - moving to History with delivery date:`, deliveryDate);
+
+        // Then transition to target module
+        console.log(`🔄 Starting transition to ${targetModule}...`);
+        if (targetModule === 'production') {
+          await workflowService.transitionDesignToProduction(projectId, deliveryDate);
+        } else {
+          console.log(`🔧 Calling transitionDesignToInstallation for project ${projectId}`);
+          await workflowService.transitionDesignToInstallation(projectId, deliveryDate);
+        }
+        console.log(`✅ Transition to ${targetModule} completed`);
+
+        alert(`Design completed and automatically moved to ${targetModule}! Project moved to design history.`);
+
+        // Reload projects to reflect changes
+        console.log(`🔄 Reloading projects...`);
+        await loadProjects();
+      } else if (designStatus === 'pending') {
+        // Reset to pending (rollback from partial or completed)
+        const updates: any = {
+          designData: {
+            ...currentDesignData,
+            status: 'pending',
+            hasFlowedFromPartial: false,
+            lastModified: new Date()
+          },
+          progress: 25
+        };
+
+        // Remove completion dates
+        delete updates.designData.partialCompletedAt;
+        delete updates.designData.completedAt;
+
+        await projectsService.updateProject(projectId, updates);
+        alert('Design status reset to pending! Project moved back to WIP.');
+      }
 
       // Reload projects
-      const updatedProjects = await projectsService.getProjectsByStatus('DNE');
-      setProjects(updatedProjects);
-
-      setShowFileUpload(false);
-      setFiles(null);
-      setSelectedProject(null);
-      alert('Files uploaded successfully!');
+      await loadProjects();
     } catch (error) {
-      console.error('Error uploading files:', error);
-      alert('Failed to upload files. Please try again.');
-    } finally {
-      setUploadingFile(false);
+      console.error('Error updating design status:', error);
+      alert('Failed to update design status. Please try again.');
     }
   };
+
+  // Helper function to reload projects
+  const loadProjects = async () => {
+    try {
+      const allProjects = await projectsService.getProjects();
+
+      // Validate and clean project data (same logic as useEffect)
+      const validProjects = allProjects.filter(project => {
+        if (!project.id || !project.projectName) {
+          console.warn('Invalid project data:', project);
+          return false;
+        }
+        return true;
+      }).map(project => {
+        // Ensure deliveryDate is properly formatted
+        if (project.deliveryDate && typeof project.deliveryDate === 'string') {
+          try {
+            new Date(project.deliveryDate);
+          } catch (error) {
+            console.warn('Invalid delivery date for project:', project.id, project.deliveryDate);
+            project.deliveryDate = new Date().toISOString();
+          }
+        }
+
+        // Ensure designData has proper structure
+        if (!project.designData) {
+          project.designData = {
+            status: 'pending',
+            lastModified: new Date(),
+            hasFlowedFromPartial: false
+          };
+        }
+
+        return project;
+      });
+
+      // WIP: Projects in DNE status that are NOT fully completed
+      const wipProjectsData = validProjects.filter(project => {
+        const isDNE = project.status === 'dne';
+        const designStatus = project.designData?.status;
+
+        return isDNE && (
+          !designStatus || // No designData = pending = WIP
+          designStatus === 'pending' ||
+          designStatus === 'partial'
+        );
+      });
+
+      // History: Only projects that have been marked as fully completed
+      const historyProjectsData = validProjects.filter(project =>
+        project.designData?.status === 'completed'
+      );
+
+      setWipProjects(wipProjectsData);
+      setHistoryProjects(historyProjectsData);
+    } catch (error) {
+      console.error('Error reloading design projects:', error);
+    }
+  };
+
+
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -116,82 +338,117 @@ const DesignModule: React.FC = () => {
         icon={Wrench}
         iconColor="text-white"
         iconBgColor="bg-gradient-to-r from-blue-500 to-blue-600"
-      >
-        {selectedProject && (
-          <button
-            onClick={() => setShowFileUpload(true)}
-            className="flex items-center bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-4 py-2 rounded-xl transition-all duration-200 hover:shadow-lg hover:scale-105"
-          >
-            <Upload className="w-4 h-4 mr-2" />
-            Upload Files
-          </button>
-        )}
-      </ModuleHeader>
+      />
 
       {/* Content */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Admin Lock Management Banner - Only show if collaboration is working */}
+        {currentUser?.role === 'admin' && (isLocked || lockError) && !lockError?.includes('permissions') && (
+          <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-4 shadow-lg border border-white/50 mb-6">
+            <CollaborationBanner
+              lock={lockOwner}
+              isLockOwner={isLockOwner}
+              presence={presence}
+              onReleaseLock={async () => {
+                await releaseLock();
+                await removePresence();
+                setSelectedProjectForEdit('');
+              }}
+              className="w-full"
+            />
+          </div>
+        )}
+
         {/* Tab Navigation */}
         <div className="bg-white/80 backdrop-blur-sm rounded-xl p-1 mb-6 shadow-sm border border-white/50">
           <div className="flex">
             <button
-              onClick={() => setActiveTab('projects')}
+              onClick={() => setActiveTab('wip')}
               className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all duration-200 ${
-                activeTab === 'projects'
+                activeTab === 'wip'
                   ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
               }`}
             >
-              Design Projects (DNE)
+              📝 WIP (Work in Progress)
             </button>
             <button
-              onClick={() => setActiveTab('completed')}
+              onClick={() => setActiveTab('history')}
               className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all duration-200 ${
-                activeTab === 'completed'
+                activeTab === 'history'
                   ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
               }`}
             >
-              Completed Projects
+              📊 History
             </button>
           </div>
         </div>
 
-        {/* Design Projects Tab */}
-        {activeTab === 'projects' && (
+        {/* WIP Tab */}
+        {activeTab === 'wip' && (
           <div className="space-y-4">
-            {loading ? (
+            {!permissions.canView ? (
+              <div className="text-center py-12">
+                <Lock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">You do not have permission to view design projects.</p>
+              </div>
+            ) : loading ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
                 <p className="mt-4 text-gray-600">Loading design projects...</p>
               </div>
-            ) : projects.length === 0 ? (
+            ) : wipProjects.length === 0 ? (
               <div className="text-center py-12">
                 <Wrench className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">No design projects found</p>
-                <p className="text-sm text-gray-500 mt-2">Projects with DNE status will appear here</p>
+                <p className="text-gray-600">No projects in design phase</p>
+                <p className="text-sm text-gray-500 mt-2">Projects from sales will appear here for design work</p>
               </div>
             ) : (
-              projects.map((project) => (
+              wipProjects.map((project) => (
                 <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-lg font-semibold text-gray-900">{project.name}</h3>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
-                          {project.status}
-                        </span>
+                        <h3 className="text-lg font-semibold text-gray-900">{project.projectName}</h3>
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
+                            {project.status}
+                          </span>
+                          {/* Manual unlock button for admins - Only show if collaboration is working */}
+                          {currentUser?.role === 'admin' && isLocked && selectedProjectForEdit === project.id && !isLockOwner && !lockError?.includes('permissions') && (
+                            <button
+                              onClick={() => handleManualUnlock(project.id!)}
+                              className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+                              title="Admin: Force unlock project"
+                            >
+                              <Unlock className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
+
+                      {/* Collaboration Status - Only show if collaboration is working */}
+                      {selectedProjectForEdit === project.id && !lockError?.includes('permissions') && (
+                        <CollaborationStatus
+                          lock={lockOwner}
+                          presence={presence}
+                          isLockOwner={isLockOwner}
+                          lockError={lockError}
+                          className="mb-3"
+                        />
+                      )}
                       {project.description && (
                         <p className="text-gray-600 mb-3">{project.description}</p>
                       )}
                       <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-4">
-                        <span>Due: {new Date(project.completionDate).toLocaleDateString()}</span>
+                        <span>Due: {project.deliveryDate ? new Date(project.deliveryDate).toLocaleDateString() : 'Not set'}</span>
                         <span>Progress: {project.progress || 0}%</span>
-                        {project.files && project.files.length > 0 && (
-                          <span className="flex items-center">
-                            <FileText className="w-4 h-4 mr-1" />
-                            {project.files.length} files
-                          </span>
+                        {project.designData?.status && (
+                          <span className="capitalize">Design: {project.designData.status}</span>
+                        )}
+                        {project.designData?.deliveryDate && (
+                          <span>Design Due: {new Date(project.designData.deliveryDate).toLocaleDateString()}</span>
                         )}
                       </div>
 
@@ -203,102 +460,217 @@ const DesignModule: React.FC = () => {
                         ></div>
                       </div>
 
-                      {/* Action Buttons */}
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          onClick={() => setSelectedProject(project)}
-                          className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
-                        >
-                          <Upload className="w-4 h-4 mr-1" />
-                          Upload Files
-                        </button>
-                        <button
-                          onClick={() => handleStatusChange(project.id!, 'Production')}
-                          className="bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
-                        >
-                          <CheckCircle className="w-4 h-4 mr-1" />
-                          Move to Production
-                        </button>
-                        <button
-                          onClick={() => handleStatusChange(project.id!, 'Completed')}
-                          className="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
-                        >
-                          <Check className="w-4 h-4 mr-1" />
-                          Mark Complete
-                        </button>
+                      {/* Design Status Checkboxes */}
+                      <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                        <h4 className="text-sm font-medium text-gray-700 mb-2">Design Status:</h4>
+                        <div className="space-y-2">
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              name={`design-status-${project.id}`}
+                              checked={project.designData?.status === 'pending' || !project.designData?.status}
+                              onChange={async () => {
+                                try {
+                                  setSelectedProjectForEdit(project.id!);
+                                  const lockAcquired = await acquireLock();
+                                  if (lockAcquired) {
+                                    await updatePresence('editing');
+                                    handleDesignStatusChange(project.id!, 'pending');
+                                    await releaseLock();
+                                    await removePresence();
+                                  } else {
+                                    // If lock acquisition fails due to permissions, proceed without locking
+                                    if (lockError?.includes('permissions')) {
+                                      console.warn('Collaborative editing disabled due to permissions, proceeding without lock');
+                                      handleDesignStatusChange(project.id!, 'pending');
+                                    } else {
+                                      alert(lockError || 'Project is currently being edited by another user');
+                                    }
+                                  }
+                                } catch (error) {
+                                  console.error('Error in status change:', error);
+                                  // Fallback: proceed without collaborative features
+                                  handleDesignStatusChange(project.id!, 'pending');
+                                }
+                              }}
+                              disabled={!permissions.canEdit || (isLocked && !isLockOwner && selectedProjectForEdit === project.id)}
+                              className="mr-2"
+                            />
+                            <span className="text-sm">Pending</span>
+                          </label>
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              name={`design-status-${project.id}`}
+                              checked={project.designData?.status === 'partial'}
+                              onChange={async () => {
+                                try {
+                                  setSelectedProjectForEdit(project.id!);
+                                  const lockAcquired = await acquireLock();
+                                  if (lockAcquired) {
+                                    await updatePresence('editing');
+                                    handleDesignStatusChange(project.id!, 'partial');
+                                    await releaseLock();
+                                    await removePresence();
+                                  } else {
+                                    // If lock acquisition fails due to permissions, proceed without locking
+                                    if (lockError?.includes('permissions')) {
+                                      console.warn('Collaborative editing disabled due to permissions, proceeding without lock');
+                                      handleDesignStatusChange(project.id!, 'partial');
+                                    } else {
+                                      alert(lockError || 'Project is currently being edited by another user');
+                                    }
+                                  }
+                                } catch (error) {
+                                  console.error('Error in status change:', error);
+                                  // Fallback: proceed without collaborative features
+                                  handleDesignStatusChange(project.id!, 'partial');
+                                }
+                              }}
+                              disabled={!permissions.canEdit || (isLocked && !isLockOwner && selectedProjectForEdit === project.id)}
+                              className="mr-2"
+                            />
+                            <span className="text-sm">Partial (stays in WIP)</span>
+                          </label>
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              name={`design-status-${project.id}`}
+                              checked={project.designData?.status === 'completed'}
+                              onChange={async () => {
+                                try {
+                                  setSelectedProjectForEdit(project.id!);
+                                  const lockAcquired = await acquireLock();
+                                  if (lockAcquired) {
+                                    await updatePresence('editing');
+                                    handleDesignStatusChange(project.id!, 'completed');
+                                    await releaseLock();
+                                    await removePresence();
+                                  } else {
+                                    // If lock acquisition fails due to permissions, proceed without locking
+                                    if (lockError?.includes('permissions')) {
+                                      console.warn('Collaborative editing disabled due to permissions, proceeding without lock');
+                                      handleDesignStatusChange(project.id!, 'completed');
+                                    } else {
+                                      alert(lockError || 'Project is currently being edited by another user');
+                                    }
+                                  }
+                                } catch (error) {
+                                  console.error('Error in status change:', error);
+                                  // Fallback: proceed without collaborative features
+                                  handleDesignStatusChange(project.id!, 'completed');
+                                }
+                              }}
+                              disabled={!permissions.canEdit || (isLocked && !isLockOwner && selectedProjectForEdit === project.id)}
+                              className="mr-2"
+                            />
+                            <span className="text-sm">Completed (moves to History)</span>
+                          </label>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
 
-        {/* Completed Projects Tab */}
-        {activeTab === 'completed' && (
-          <div className="space-y-4">
-            {loading ? (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-                <p className="mt-4 text-gray-600">Loading completed projects...</p>
-              </div>
-            ) : completedProjects.length === 0 ? (
-              <div className="text-center py-12">
-                <CheckCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">No completed projects found</p>
-              </div>
-            ) : (
-              completedProjects.map((project) => (
-                <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-lg font-semibold text-gray-900">{project.name}</h3>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
-                          {project.status}
-                        </span>
-                      </div>
-                      {project.description && (
-                        <p className="text-gray-600 mb-3">{project.description}</p>
-                      )}
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-4">
-                        <span>Completed: {new Date(project.completionDate).toLocaleDateString()}</span>
-                        <span>Progress: {project.progress || 100}%</span>
-                        {project.files && project.files.length > 0 && (
-                          <span className="flex items-center">
-                            <FileText className="w-4 h-4 mr-1" />
-                            {project.files.length} files
-                          </span>
-                        )}
-                      </div>
+                      {/* Flow buttons for partial and completed */}
+                      {(project.designData?.status === 'partial' || project.designData?.status === 'completed') && permissions.canEdit && (
+                        <div className="mb-4 p-3 bg-green-50 rounded-lg">
+                          <h4 className="text-sm font-medium text-green-800 mb-3">
+                            {project.designData?.status === 'partial' ? 'Partial Completed - Flow to:' : 'Completed - Flow to:'}
+                          </h4>
 
-                      {/* Progress Bar */}
-                      <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
-                        <div
-                          className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full transition-all duration-500"
-                          style={{ width: `${project.progress || 100}%` }}
-                        ></div>
-                      </div>
-
-                      {/* Files Display */}
-                      {project.files && project.files.length > 0 && (
-                        <div className="mt-4">
-                          <h4 className="text-sm font-medium text-gray-700 mb-2">Design Files:</h4>
                           <div className="flex flex-wrap gap-2">
-                            {project.files.map((fileUrl, index) => (
-                              <a
-                                key={index}
-                                href={fileUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1 rounded-lg text-sm transition-colors"
-                              >
-                                <FileText className="w-4 h-4 mr-1" />
-                                File {index + 1}
-                              </a>
-                            ))}
+                            <button
+                              onClick={async () => {
+                                try {
+                                  setSelectedProjectForEdit(project.id!);
+                                  const lockAcquired = await acquireLock();
+                                  if (lockAcquired) {
+                                    await updatePresence('editing');
+                                    handleDesignStatusChange(project.id!, 'completed', 'production', new Date());
+                                    await releaseLock();
+                                    await removePresence();
+                                  } else {
+                                    // If lock acquisition fails due to permissions, proceed without locking
+                                    if (lockError?.includes('permissions')) {
+                                      console.warn('Collaborative editing disabled due to permissions, proceeding without lock');
+                                      handleDesignStatusChange(project.id!, 'completed', 'production', new Date());
+                                    } else {
+                                      alert(lockError || 'Project is currently being edited by another user');
+                                    }
+                                  }
+                                } catch (error) {
+                                  console.error('Error in flow to production:', error);
+                                  // Fallback: proceed without collaborative features
+                                  handleDesignStatusChange(project.id!, 'completed', 'production', new Date());
+                                }
+                              }}
+                              disabled={isLocked && !isLockOwner && selectedProjectForEdit === project.id}
+                              className="bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <ArrowRight className="w-4 h-4 mr-1" />
+                              Complete & Flow to Production
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  setSelectedProjectForEdit(project.id!);
+                                  const lockAcquired = await acquireLock();
+                                  if (lockAcquired) {
+                                    await updatePresence('editing');
+                                    handleDesignStatusChange(project.id!, 'completed', 'installation', new Date());
+                                    await releaseLock();
+                                    await removePresence();
+                                  } else {
+                                    // If lock acquisition fails due to permissions, proceed without locking
+                                    if (lockError?.includes('permissions')) {
+                                      console.warn('Collaborative editing disabled due to permissions, proceeding without lock');
+                                      handleDesignStatusChange(project.id!, 'completed', 'installation', new Date());
+                                    } else {
+                                      alert(lockError || 'Project is currently being edited by another user');
+                                    }
+                                  }
+                                } catch (error) {
+                                  console.error('Error in flow to installation:', error);
+                                  // Fallback: proceed without collaborative features
+                                  handleDesignStatusChange(project.id!, 'completed', 'installation', new Date());
+                                }
+                              }}
+                              disabled={isLocked && !isLockOwner && selectedProjectForEdit === project.id}
+                              className="bg-purple-100 hover:bg-purple-200 text-purple-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <ArrowRight className="w-4 h-4 mr-1" />
+                              Complete & Flow to Installation
+                            </button>
                           </div>
+
+                          <p className="text-xs text-gray-600 mt-2">
+                            {project.designData?.status === 'partial'
+                              ? 'Partial: Project stays in WIP for continued work and flows to selected module'
+                              : 'Completed: Project moves to History and flows to selected module'
+                            }
+                          </p>
+                        </div>
+                      )}
+
+                      {!permissions.canEdit && (
+                        <div className="flex items-center text-gray-500 text-sm">
+                          <Lock className="w-4 h-4 mr-1" />
+                          Read-only access
+                        </div>
+                      )}
+
+                      {/* Revert to WIP option for history projects */}
+                      {permissions.canEdit && project.designData?.status === 'completed' && (
+                        <div className="mt-4 pt-3 border-t border-gray-200">
+                          <button
+                            onClick={() => {
+                              if (confirm('Are you sure you want to revert this project back to WIP? This will move it back to the design phase.')) {
+                                handleDesignStatusChange(project.id!, 'pending');
+                              }
+                            }}
+                            className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
+                          >
+                            <ArrowRight className="w-4 h-4 mr-1 rotate-180" />
+                            Revert to WIP
+                          </button>
                         </div>
                       )}
                     </div>
@@ -309,59 +681,62 @@ const DesignModule: React.FC = () => {
           </div>
         )}
 
-        {/* File Upload Modal */}
-        {showFileUpload && selectedProject && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">
-                Upload Design Files
-              </h3>
-              <p className="text-gray-600 mb-4">
-                Project: <span className="font-medium">{selectedProject.name}</span>
-              </p>
+        {/* History Tab */}
+        {activeTab === 'history' && (
+          <div className="space-y-4">
+            {!permissions.canView ? (
+              <div className="text-center py-12">
+                <Lock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">You do not have permission to view design history.</p>
+              </div>
+            ) : loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+                <p className="mt-4 text-gray-600">Loading design history...</p>
+              </div>
+            ) : historyProjects.length === 0 ? (
+              <div className="text-center py-12">
+                <CheckCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">No completed design projects found</p>
+              </div>
+            ) : (
+              historyProjects.map((project) => (
+                <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900">{project.projectName}</h3>
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
+                          {project.status}
+                        </span>
+                      </div>
+                      {project.description && (
+                        <p className="text-gray-600 mb-3">{project.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-4">
+                        <span>Completed: {new Date(project.deliveryDate).toLocaleDateString()}</span>
+                        <span>Progress: {project.progress || 100}%</span>
 
-              <form onSubmit={handleFileUpload} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Files
-                  </label>
-                  <input
-                    type="file"
-                    multiple
-                    accept=".pdf,.dwg,.jpg,.jpeg,.png,.doc,.docx"
-                    onChange={(e) => setFiles(e.target.files)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Supported: PDF, DWG, Images, Documents
-                  </p>
-                </div>
+                      </div>
 
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowFileUpload(false);
-                      setSelectedProject(null);
-                      setFiles(null);
-                    }}
-                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-xl transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={uploadingFile || !files}
-                    className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-500 text-white py-2 px-4 rounded-xl transition-all duration-200"
-                  >
-                    {uploadingFile ? 'Uploading...' : 'Upload Files'}
-                  </button>
+                      {/* Progress Bar */}
+                      <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+                        <div
+                          className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full transition-all duration-500"
+                          style={{ width: `${project.progress || 100}%` }}
+                        ></div>
+                      </div>
+
+
+                    </div>
+                  </div>
                 </div>
-              </form>
-            </div>
+              ))
+            )}
           </div>
         )}
+
+
       </div>
     </div>
   );

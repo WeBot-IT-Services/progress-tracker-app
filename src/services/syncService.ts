@@ -21,27 +21,65 @@ import {
   saveUser,
   getProject,
   deleteProject as deleteProjectFromStorage,
-  isOnline
+  isOnline,
+  saveConflict,
+  getConflicts,
+  resolveConflict,
+  updateSyncMetadata,
+  getSyncMetadata,
+  getPendingActionsCount,
+  getFailedActions,
+  retryFailedActions,
+  initializeOfflineStorage
 } from './offlineStorage';
 import type { Project, User as AppUser } from '../types';
 
-// Sync status
+// Enhanced sync status
 let isSyncing = false;
-let syncListeners: (() => void)[] = [];
-
-// Network status listeners
+let syncListeners: ((status: SyncStatus) => void)[] = [];
 let networkListeners: ((online: boolean) => void)[] = [];
 
+// Sync status interface
+interface SyncStatus {
+  isSyncing: boolean;
+  isOnline: boolean;
+  pendingActions: number;
+  failedActions: number;
+  conflicts: number;
+  lastSyncTime: Date | null;
+  syncProgress: number;
+  currentOperation?: string;
+}
+
+// Current sync status
+let currentSyncStatus: SyncStatus = {
+  isSyncing: false,
+  isOnline: navigator.onLine,
+  pendingActions: 0,
+  failedActions: 0,
+  conflicts: 0,
+  lastSyncTime: null,
+  syncProgress: 0
+};
+
 // Initialize sync service
-export const initSyncService = () => {
-  // Listen for network changes
-  window.addEventListener('online', handleOnline);
-  window.addEventListener('offline', handleOffline);
+export const initSyncService = async () => {
+  try {
+    // Initialize offline storage first
+    await initializeOfflineStorage();
 
-  // Don't start periodic sync immediately - wait for authentication
-  // Periodic sync will be started when user logs in
+    // Listen for network changes
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
-  console.log('Sync service initialized');
+    // Don't start periodic sync immediately - wait for authentication
+    // Periodic sync will be started when user logs in
+
+    console.log('Sync service initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize sync service:', error);
+    throw error;
+  }
 };
 
 // Start sync after authentication
@@ -54,16 +92,18 @@ export const startSyncAfterAuth = () => {
 };
 
 // Handle network online
-const handleOnline = () => {
+const handleOnline = async () => {
   console.log('Network is online - starting sync');
+  await updateSyncStatus({ isOnline: true });
   networkListeners.forEach(listener => listener(true));
   startSync();
   startPeriodicSync();
 };
 
 // Handle network offline
-const handleOffline = () => {
+const handleOffline = async () => {
   console.log('Network is offline');
+  await updateSyncStatus({ isOnline: false, isSyncing: false });
   networkListeners.forEach(listener => listener(false));
   stopPeriodicSync();
 };
@@ -77,11 +117,33 @@ export const addNetworkListener = (listener: (online: boolean) => void) => {
 };
 
 // Add sync status listener
-export const addSyncListener = (listener: () => void) => {
+export const addSyncListener = (listener: (status: SyncStatus) => void) => {
   syncListeners.push(listener);
+  // Immediately call with current status
+  listener(currentSyncStatus);
   return () => {
     syncListeners = syncListeners.filter(l => l !== listener);
   };
+};
+
+// Update sync status and notify listeners
+const updateSyncStatus = async (updates: Partial<SyncStatus>) => {
+  currentSyncStatus = { ...currentSyncStatus, ...updates };
+
+  // Update counts from database
+  if (!updates.pendingActions) {
+    currentSyncStatus.pendingActions = await getPendingActionsCount();
+  }
+  if (!updates.failedActions) {
+    const failedActions = await getFailedActions();
+    currentSyncStatus.failedActions = failedActions.length;
+  }
+  if (!updates.conflicts) {
+    const conflicts = await getConflicts();
+    currentSyncStatus.conflicts = conflicts.filter(c => c.status === 'pending').length;
+  }
+
+  syncListeners.forEach(listener => listener(currentSyncStatus));
 };
 
 // Periodic sync interval
@@ -105,45 +167,90 @@ const stopPeriodicSync = () => {
   }
 };
 
-// Main sync function
+// Main sync function with enhanced status tracking
 export const startSync = async (): Promise<void> => {
   if (isSyncing || !isOnline()) {
     return;
   }
 
   isSyncing = true;
-  console.log('Starting sync...');
+  await updateSyncStatus({
+    isSyncing: true,
+    syncProgress: 0,
+    currentOperation: 'Starting sync...'
+  });
 
   try {
     // Sync pending operations first
+    await updateSyncStatus({ syncProgress: 25, currentOperation: 'Syncing pending operations...' });
     await syncPendingOperations();
-    
+
     // Then sync data from server
+    await updateSyncStatus({ syncProgress: 50, currentOperation: 'Syncing from server...' });
     await syncFromServer();
-    
+
+    // Process conflicts
+    await updateSyncStatus({ syncProgress: 75, currentOperation: 'Processing conflicts...' });
+    await processConflicts();
+
+    await updateSyncStatus({
+      syncProgress: 100,
+      currentOperation: 'Sync completed',
+      lastSyncTime: new Date()
+    });
+
     console.log('Sync completed successfully');
   } catch (error) {
     console.error('Sync failed:', error);
+    await updateSyncStatus({
+      currentOperation: `Sync failed: ${error.message}`,
+      syncProgress: 0
+    });
   } finally {
     isSyncing = false;
-    syncListeners.forEach(listener => listener());
+    await updateSyncStatus({ isSyncing: false, currentOperation: undefined });
   }
 };
 
-// Sync pending operations to server
+// Sync pending operations to server with conflict detection
 const syncPendingOperations = async (): Promise<void> => {
   const syncQueue = await getSyncQueue();
-  
-  for (const item of syncQueue) {
+  const pendingItems = syncQueue.filter(item => item.status === 'pending');
+
+  for (let i = 0; i < pendingItems.length; i++) {
+    const item = pendingItems[i];
+
     try {
+      // Update item status to syncing
+      item.status = 'syncing';
+      await updateSyncQueueItem(item);
+
+      // Check for conflicts before processing
+      const hasConflict = await checkForConflicts(item);
+
+      if (hasConflict) {
+        console.log('Conflict detected for item:', item.id);
+        item.status = 'failed';
+        item.lastError = 'Conflict detected - manual resolution required';
+        await updateSyncQueueItem(item);
+        continue;
+      }
+
       await processSyncItem(item);
+
+      // Mark as completed and remove
+      item.status = 'completed';
+      await updateSyncQueueItem(item);
       await removeSyncQueueItem(item.id!);
+
     } catch (error) {
       console.error('Failed to sync item:', item, error);
-      
-      // Increment retry count
+
+      // Update item with error status
+      item.status = 'failed';
       item.retryCount++;
-      
+      item.lastError = error.message;
+
       // Remove item if too many retries
       if (item.retryCount >= 3) {
         console.warn('Removing item after 3 failed attempts:', item);
@@ -152,6 +259,10 @@ const syncPendingOperations = async (): Promise<void> => {
         await updateSyncQueueItem(item);
       }
     }
+
+    // Update progress
+    const progress = 25 + (i / pendingItems.length) * 25;
+    await updateSyncStatus({ syncProgress: progress });
   }
 };
 
@@ -401,18 +512,135 @@ export const deleteProjectOffline = async (id: string): Promise<void> => {
   });
 };
 
-// Get sync status
-export const getSyncStatus = () => ({
-  isSyncing,
-  isOnline: isOnline(),
-  lastSyncTime: new Date() // You can store this in IndexedDB
-});
+// Conflict detection and resolution
+const checkForConflicts = async (item: any): Promise<boolean> => {
+  if (item.type !== 'UPDATE') return false;
 
-// Force sync
-export const forceSync = async (): Promise<void> => {
-  if (isOnline()) {
-    await startSync();
-  } else {
-    throw new Error('Cannot sync while offline');
+  try {
+    // Get current server data
+    const serverDoc = await getDocs(
+      query(collection(db, item.collection), orderBy('updatedAt', 'desc'))
+    );
+
+    const serverData = serverDoc.docs.find(doc => doc.id === item.data.id);
+    if (!serverData) return false;
+
+    const serverTimestamp = serverData.data().updatedAt?.toDate?.()?.getTime() || 0;
+    const clientTimestamp = new Date(item.data.updatedAt).getTime();
+
+    // If server data is newer, we have a conflict
+    if (serverTimestamp > clientTimestamp) {
+      await saveConflict({
+        entityType: item.collection,
+        entityId: item.data.id,
+        clientData: item.data,
+        serverData: serverData.data(),
+        timestamp: Date.now(),
+        userId: item.userId,
+        status: 'pending'
+      });
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error('Error checking for conflicts:', error);
+    return false;
   }
 };
+
+const processConflicts = async (): Promise<void> => {
+  const conflicts = await getConflicts();
+  const pendingConflicts = conflicts.filter(c => c.status === 'pending');
+
+  for (const conflict of pendingConflicts) {
+    // Auto-resolve based on conflict resolution strategy
+    const resolution = await autoResolveConflict(conflict);
+
+    if (resolution) {
+      await resolveConflict(conflict.id, resolution.strategy, resolution.data);
+
+      // Apply resolved data
+      if (resolution.strategy !== 'server-wins') {
+        await applyResolvedData(conflict.entityType, conflict.entityId, resolution.data);
+      }
+    }
+  }
+};
+
+const autoResolveConflict = async (conflict: any): Promise<{ strategy: string; data: any } | null> => {
+  // Simple auto-resolution strategies
+
+  // Strategy 1: Last-write-wins (client wins if user is currently editing)
+  if (conflict.conflictResolution === 'client-wins') {
+    return { strategy: 'client-wins', data: conflict.clientData };
+  }
+
+  // Strategy 2: Server wins (default for most cases)
+  if (conflict.conflictResolution === 'server-wins') {
+    return { strategy: 'server-wins', data: conflict.serverData };
+  }
+
+  // Strategy 3: Merge non-conflicting fields
+  if (conflict.conflictResolution === 'merge') {
+    const mergedData = mergeData(conflict.clientData, conflict.serverData);
+    return { strategy: 'merged', data: mergedData };
+  }
+
+  // Default: require manual resolution
+  return null;
+};
+
+const mergeData = (clientData: any, serverData: any): any => {
+  // Simple merge strategy - prefer client data for user-editable fields
+  // and server data for system fields
+  const merged = { ...serverData };
+
+  // Fields that client changes should take precedence
+  const clientPriorityFields = ['name', 'description', 'amount', 'notes'];
+
+  clientPriorityFields.forEach(field => {
+    if (clientData[field] !== undefined) {
+      merged[field] = clientData[field];
+    }
+  });
+
+  // Keep server timestamps
+  merged.updatedAt = serverData.updatedAt;
+  merged.createdAt = serverData.createdAt;
+
+  return merged;
+};
+
+const applyResolvedData = async (entityType: string, entityId: string, data: any): Promise<void> => {
+  // Apply resolved data to server
+  try {
+    await updateDoc(doc(db, entityType, entityId), {
+      ...data,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error applying resolved data:', error);
+  }
+};
+
+// Get enhanced sync status
+export const getSyncStatus = (): SyncStatus => currentSyncStatus;
+
+// Re-export conflict management functions
+export { getConflicts, resolveConflict } from './offlineStorage';
+
+// Force sync function
+export const forceSync = async (): Promise<void> => {
+  if (!isOnline()) {
+    console.warn('Cannot force sync while offline');
+    return;
+  }
+
+  await startSync();
+};
+
+// Re-export retry failed actions
+export { retryFailedActions } from './offlineStorage';
+
+

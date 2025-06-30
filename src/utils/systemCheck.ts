@@ -93,8 +93,8 @@ class SystemChecker {
       // Check if test users exist
       const testAccounts = [
         'admin@mysteel.com',
-        'sales@mysteel.com', 
-        'designer@mysteel.com',
+        'sales@mysteel.com',
+        'design@mysteel.com',
         'production@mysteel.com',
         'installation@mysteel.com'
       ];

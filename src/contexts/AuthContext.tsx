@@ -15,9 +15,11 @@ import {
   initOfflineStorage
 } from '../services/offlineStorage';
 import { initSyncService, setupRealtimeListeners, startSyncAfterAuth } from '../services/syncService';
+import { localAuth, type LocalUser } from '../services/localAuth';
 
 // Configuration: set to true to use Firebase, false for mock auth
 const USE_FIREBASE = true; // Always use Firebase now
+const USE_LOCAL_FALLBACK = true; // Use local auth as fallback when Firebase fails
 
 interface AuthContextType {
   currentUser: AppUser | null;
@@ -27,6 +29,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   updateUserProfile: (updates: Partial<AppUser>) => Promise<void>;
   isFirebaseMode: boolean;
+  isLocalMode: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -47,13 +50,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [realtimeUnsubscribers, setRealtimeUnsubscribers] = useState<(() => void)[]>([]);
+  const [isLocalMode, setIsLocalMode] = useState(false);
+
+  // Helper function to convert LocalUser to AppUser
+  const convertLocalUserToAppUser = (localUser: LocalUser): AppUser => ({
+    uid: localUser.uid,
+    email: localUser.email,
+    name: localUser.name,
+    role: localUser.role,
+    department: localUser.department,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    status: 'active'
+  });
 
   const login = async (email: string, password: string) => {
     try {
       let user: AppUser;
 
-      if (USE_FIREBASE) {
-        user = await firebaseLogin(email, password);
+      if (USE_FIREBASE && !isLocalMode) {
+        try {
+          user = await firebaseLogin(email, password);
+          console.log('🔥 Firebase authentication successful');
+        } catch (firebaseError) {
+          console.warn('🔥 Firebase authentication failed:', firebaseError);
+
+          if (USE_LOCAL_FALLBACK) {
+            console.log('🔄 Falling back to local authentication...');
+            const localUser = await localAuth.signIn(email, password);
+            user = convertLocalUserToAppUser(localUser);
+            setIsLocalMode(true);
+            console.log('🔐 Local authentication successful');
+          } else {
+            throw firebaseError;
+          }
+        }
+      } else if (isLocalMode || !USE_FIREBASE) {
+        if (isLocalMode) {
+          const localUser = await localAuth.signIn(email, password);
+          user = convertLocalUserToAppUser(localUser);
+        } else {
+          user = await mockLogin(email, password);
+        }
       } else {
         user = await mockLogin(email, password);
       }
@@ -62,8 +100,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       await saveAuthData(user);
       setCurrentUser(user);
 
-      // Setup realtime listeners and start sync when user logs in (only if authenticated)
-      if (USE_FIREBASE && user.uid) {
+      // Setup realtime listeners and start sync when user logs in (only if Firebase mode)
+      if (USE_FIREBASE && !isLocalMode && user.uid) {
         try {
           startSyncAfterAuth();
           const unsubscribers = setupRealtimeListeners();
@@ -114,13 +152,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       realtimeUnsubscribers.forEach(unsubscribe => unsubscribe());
       setRealtimeUnsubscribers([]);
 
-      if (USE_FIREBASE) {
+      if (isLocalMode) {
+        await localAuth.signOut();
+      } else if (USE_FIREBASE) {
         await firebaseLogout();
       }
 
       // Clear offline storage
       await clearAuthData();
       setCurrentUser(null);
+      setIsLocalMode(false);
     } catch (error) {
       console.error('Logout error:', error);
       throw error;
@@ -201,7 +242,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     register,
     logout,
     updateUserProfile,
-    isFirebaseMode: USE_FIREBASE
+    isFirebaseMode: USE_FIREBASE && !isLocalMode,
+    isLocalMode
   };
 
   return (

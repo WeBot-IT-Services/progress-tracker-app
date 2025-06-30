@@ -12,13 +12,13 @@ interface TestUser {
   name: string;
 }
 
-// Test users for different roles
+// Test users for different roles - Production credentials
 export const TEST_USERS: TestUser[] = [
-  { email: 'admin@mysteel.com', password: 'admin123', role: 'admin', name: 'Admin User' },
-  { email: 'sales@mysteel.com', password: 'sales123', role: 'sales', name: 'Sales User' },
-  { email: 'designer@mysteel.com', password: 'designer123', role: 'designer', name: 'Designer User' },
-  { email: 'production@mysteel.com', password: 'production123', role: 'production', name: 'Production User' },
-  { email: 'installation@mysteel.com', password: 'installation123', role: 'installation', name: 'Installation User' }
+  { email: 'admin@mysteel.com', password: 'MS2024!Admin#Secure', role: 'admin', name: 'System Administrator' },
+  { email: 'sales@mysteel.com', password: 'MS2024!Sales#Manager', role: 'sales', name: 'Sales Manager' },
+  { email: 'design@mysteel.com', password: 'MS2024!Design#Engineer', role: 'designer', name: 'Design Engineer' },
+  { email: 'production@mysteel.com', password: 'MS2024!Prod#Manager', role: 'production', name: 'Production Manager' },
+  { email: 'installation@mysteel.com', password: 'MS2024!Install#Super', role: 'installation', name: 'Installation Manager' }
 ];
 
 // Test project data

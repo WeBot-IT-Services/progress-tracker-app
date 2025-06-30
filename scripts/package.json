@@ -1,0 +1,18 @@
+{
+  "name": "firestore-populator",
+  "version": "1.0.0",
+  "description": "Node.js script to populate Firestore with mysteel Construction data",
+  "main": "populate-firestore-node.js",
+  "scripts": {
+    "populate": "node populate-firestore-node.js",
+    "populate-simple": "node populate-simple.js",
+    "install-admin": "npm install firebase-admin",
+    "install-web": "npm install firebase"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase": "^10.7.0"
+  },
+  "author": "mysteel Construction",
+  "license": "MIT"
+}

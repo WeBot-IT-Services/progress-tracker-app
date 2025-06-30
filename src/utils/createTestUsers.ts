@@ -10,36 +10,36 @@ interface TestUser {
   role: UserRole;
 }
 
-// Test users with different roles
+// Test users with different roles - Production credentials
 export const testUsers: TestUser[] = [
   {
     email: 'admin@mysteel.com',
-    password: 'admin123',
-    name: 'Admin User',
+    password: 'MS2024!Admin#Secure',
+    name: 'System Administrator',
     role: 'admin'
   },
   {
     email: 'sales@mysteel.com',
-    password: 'sales123',
+    password: 'MS2024!Sales#Manager',
     name: 'Sales Manager',
     role: 'sales'
   },
   {
-    email: 'designer@mysteel.com',
-    password: 'designer123',
+    email: 'design@mysteel.com',
+    password: 'MS2024!Design#Engineer',
     name: 'Design Engineer',
     role: 'designer'
   },
   {
     email: 'production@mysteel.com',
-    password: 'production123',
+    password: 'MS2024!Prod#Manager',
     name: 'Production Manager',
     role: 'production'
   },
   {
     email: 'installation@mysteel.com',
-    password: 'installation123',
-    name: 'Installation Supervisor',
+    password: 'MS2024!Install#Super',
+    name: 'Installation Manager',
     role: 'installation'
   }
 ];
@@ -152,6 +152,49 @@ const getAccessDescription = (role: UserRole): string => {
   }
 };
 
+// Create mysteel.com users specifically
+export const createMysteelUsers = async (): Promise<void> => {
+  console.log('🚀 Creating Mysteel Construction users with mysteel.com domain...');
+
+  const results = [];
+
+  for (const userData of testUsers) {
+    try {
+      const result = await createTestUser(userData);
+      results.push({ ...userData, success: true, uid: result });
+    } catch (error) {
+      results.push({ ...userData, success: false, error });
+    }
+  }
+
+  console.log('\n📊 Mysteel User Creation Summary:');
+  console.log('=================================');
+
+  results.forEach(result => {
+    const status = result.success ? '✅' : '❌';
+    console.log(`${status} ${result.role.toUpperCase()}: ${result.email}`);
+    if (!result.success) {
+      console.log(`   Error: ${'error' in result ? result.error : 'Unknown error'}`);
+    }
+  });
+
+  console.log('\n🔑 Mysteel.com Login Credentials:');
+  console.log('┌─────────────┬─────────────────────────────┬─────────────────────────────┐');
+  console.log('│ Role        │ Email                       │ Password                    │');
+  console.log('├─────────────┼─────────────────────────────┼─────────────────────────────┤');
+
+  testUsers.forEach(user => {
+    const role = user.role.charAt(0).toUpperCase() + user.role.slice(1);
+    console.log(`│ ${role.padEnd(11)} │ ${user.email.padEnd(27)} │ ${user.password.padEnd(27)} │`);
+  });
+
+  console.log('└─────────────┴─────────────────────────────┴─────────────────────────────┘');
+
+  console.log('\n✅ All users now use mysteel.com domain!');
+  console.log('🎯 Ready for testing with production credentials!');
+};
+
 // Export for easy access in console
 (window as any).createTestUsers = createAllTestUsers;
+(window as any).createMysteelUsers = createMysteelUsers;
 (window as any).showLoginCredentials = displayLoginCredentials;

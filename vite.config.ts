@@ -49,10 +49,18 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
+        // Add timestamp to filenames for cache busting
+        entryFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+        chunkFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+        assetFileNames: `assets/[name]-[hash]-${Date.now()}.[ext]`,
         manualChunks: {
           firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage']
         }
       }
-    }
+    },
+    // Generate source maps for better debugging
+    sourcemap: true,
+    // Ensure assets are properly versioned
+    assetsInlineLimit: 0
   }
 })

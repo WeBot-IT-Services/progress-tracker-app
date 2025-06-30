@@ -27,13 +27,13 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Test credentials
+// Test credentials - Production passwords
 const testCredentials = [
-  { email: 'admin@mysteel.com', password: 'admin123', role: 'admin' },
-  { email: 'sales@mysteel.com', password: 'sales123', role: 'sales' },
-  { email: 'designer@mysteel.com', password: 'designer123', role: 'designer' },
-  { email: 'production@mysteel.com', password: 'production123', role: 'production' },
-  { email: 'installation@mysteel.com', password: 'installation123', role: 'installation' }
+  { email: 'admin@mysteel.com', password: 'MS2024!Admin#Secure', role: 'admin' },
+  { email: 'sales@mysteel.com', password: 'MS2024!Sales#Manager', role: 'sales' },
+  { email: 'design@mysteel.com', password: 'MS2024!Design#Engineer', role: 'designer' },
+  { email: 'production@mysteel.com', password: 'MS2024!Prod#Manager', role: 'production' },
+  { email: 'installation@mysteel.com', password: 'MS2024!Install#Super', role: 'installation' }
 ];
 
 async function verifyAuthentication() {

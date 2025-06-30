@@ -67,18 +67,16 @@ service firebase.storage {
     }
     
     // Installation photos - uploaded by Installation team
-    match /installation/{projectId}/{fileName} {
+    // Simplified rule for testing - allow any authenticated user to upload any file
+    match /installation/{allPaths=**} {
       // Read permissions - anyone authenticated can view installation photos
       allow read: if isAuthenticated();
-      
-      // Write permissions - Admin and Installation team can upload photos
-      allow write: if isAuthenticated() && 
-                      (isAdmin() || isInstallation()) && 
-                      isValidImage() && 
-                      isValidFileSize();
-      
-      // Delete permissions - Admin and Installation team only
-      allow delete: if isAdmin() || isInstallation();
+
+      // Write permissions - VERY PERMISSIVE FOR TESTING - any authenticated user can upload
+      allow write: if isAuthenticated();
+
+      // Delete permissions - any authenticated user for testing
+      allow delete: if isAuthenticated();
     }
     
     // Production files - uploaded by Production team

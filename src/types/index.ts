@@ -25,6 +25,11 @@ export interface Project {
   designData?: DesignData;
   productionData?: ProductionData;
   installationData?: InstallationData;
+  // Additional fields for better tracking
+  description?: string;
+  priority?: 'low' | 'medium' | 'high';
+  progress?: number;
+  files?: string[];
 }
 
 export interface SalesData {
@@ -44,6 +49,8 @@ export interface DesignData {
   assignedTo?: string;
   notes?: string;
   lastModified: Date;
+  // Track if project has already flowed from partial to production/installation
+  hasFlowedFromPartial?: boolean;
 }
 
 export interface Milestone {
@@ -71,6 +78,9 @@ export interface InstallationPhoto {
   uploadedAt: Date;
   uploadedBy: string;
   milestoneId?: string;
+  // Enhanced photo organization
+  date: string; // YYYY-MM-DD format for folder organization
+  folderPath: string; // Full path for organized storage
 }
 
 export interface InstallationData {
@@ -82,6 +92,13 @@ export interface InstallationData {
   completedAt?: Date;
   notes?: string;
   lastModified: Date;
+  // Enhanced milestone tracking
+  milestoneProgress: Record<string, {
+    status: 'pending' | 'in-progress' | 'completed';
+    startedAt?: Date;
+    completedAt?: Date;
+    notes?: string;
+  }>;
 }
 
 export interface Complaint {

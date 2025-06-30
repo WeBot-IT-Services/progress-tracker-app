@@ -210,19 +210,8 @@ export const hasRole = (user: AppUser | null, roles: UserRole[]): boolean => {
 
 // Check if user can access specific module
 export const canAccessModule = (user: AppUser | null, module: string): boolean => {
-  if (!user) return false;
-  
-  const modulePermissions: Record<string, UserRole[]> = {
-    sales: ['admin', 'sales'],
-    design: ['admin', 'designer'],
-    production: ['admin', 'production'],
-    installation: ['admin', 'installation'],
-    tracker: ['admin', 'sales', 'designer', 'production', 'installation'],
-    complaints: ['admin', 'sales', 'designer', 'production', 'installation']
-  };
-  
-  const allowedRoles = modulePermissions[module] || [];
-  return allowedRoles.includes(user.role);
+  // All authenticated users can access all modules (view-only for some)
+  return user !== null;
 };
 
 // Check if user can see amount field

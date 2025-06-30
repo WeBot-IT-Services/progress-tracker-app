@@ -2,6 +2,7 @@
   "name": "Progress Tracker - Mysteel Construction",
   "short_name": "Progress Tracker",
   "description": "Project progress tracking application for Mysteel Construction Sdn Bhd",
+  "version": "3.13.0",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

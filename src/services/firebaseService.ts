@@ -1,29 +1,31 @@
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  getDocs, 
-  getDoc, 
-  query, 
-  where, 
-  orderBy, 
+import {
+  collection,
+  doc,
+  addDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  getDocs,
+  getDoc,
+  query,
+  where,
+  orderBy,
   onSnapshot,
   serverTimestamp,
-  Timestamp 
+  Timestamp
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { db, storage } from '../config/firebase';
+import { db, storage, isDevelopmentMode } from '../config/firebase';
+import { localData } from './localData';
 
 // Types
 export interface Project {
   id?: string;
-  name: string;
+  projectName: string;
   description?: string;
   amount?: number;
-  completionDate: string;
-  status: 'DNE' | 'Production' | 'Installation' | 'Completed';
+  deliveryDate: string;
+  status: 'sales' | 'dne' | 'production' | 'installation' | 'completed';
   createdBy: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -31,6 +33,43 @@ export interface Project {
   priority?: 'low' | 'medium' | 'high';
   progress?: number;
   files?: string[];
+  // Enhanced fields for better tracking
+  salesData?: {
+    deliveryDate?: Date;
+    completedAt?: Date;
+    lastModified: Date;
+  };
+  designData?: {
+    status: 'pending' | 'partial' | 'completed';
+    hasFlowedFromPartial?: boolean;
+    partialCompletedAt?: Date;
+    completedAt?: Date;
+    deliveryDate?: Date;
+    lastModified: Date;
+  };
+  productionData?: {
+    assignedAt?: Date;
+    deliveryDate?: Date;
+    completedAt?: Date;
+    lastModified: Date;
+  };
+  installationData?: {
+    milestoneProgress?: Record<string, {
+      status: 'pending' | 'in-progress' | 'completed';
+      startedAt?: Date;
+      completedAt?: Date;
+    }>;
+    deliveryDate?: Date;
+    completedAt?: Date;
+    lastModified: Date;
+  };
+  photoMetadata?: Array<{
+    url: string;
+    date: string;
+    milestoneId?: string;
+    uploadedBy: string;
+    uploadedAt: string;
+  }>;
 }
 
 export interface Complaint {
@@ -41,6 +80,7 @@ export interface Complaint {
   projectId: string;
   status: 'open' | 'in-progress' | 'resolved';
   priority: 'high' | 'medium' | 'low';
+  department: 'sales' | 'designer' | 'production' | 'installation';
   createdAt: Timestamp;
   updatedAt: Timestamp;
   assignedTo?: string;
@@ -63,53 +103,218 @@ export interface Milestone {
   id?: string;
   projectId: string;
   title: string;
-  description?: string;
   status: 'pending' | 'in-progress' | 'completed';
-  dueDate: string;
+  startDate: string;
   completedDate?: string;
   assignedTo?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  images?: Array<{
+    id: string;
+    url: string;
+    caption?: string;
+    uploadedAt: Date;
+    uploadedBy: string;
+  }>;
 }
+
+// Check if we should use local data (when Firebase is not available)
+const shouldUseLocalData = () => {
+  return isDevelopmentMode && (!db || localStorage.getItem('useLocalData') === 'true');
+};
 
 // Projects Service
 export const projectsService = {
-  // Create project
+  // Create project with proper status flow (starts in 'sales' status)
   async createProject(project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    const docRef = await addDoc(collection(db, 'projects'), {
-      ...project,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-    return docRef.id;
+    if (shouldUseLocalData()) {
+      return await localData.createProject(project);
+    }
+
+    try {
+      const docRef = await addDoc(collection(db, 'projects'), {
+        ...project,
+        status: 'sales', // Always start in sales status
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      return docRef.id;
+    } catch (error) {
+      console.warn('Firebase createProject failed, using local data:', error);
+      localStorage.setItem('useLocalData', 'true');
+      return await localData.createProject(project);
+    }
   },
 
   // Get all projects
   async getProjects(): Promise<Project[]> {
-    const querySnapshot = await getDocs(
-      query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
-    );
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as Project));
+    if (shouldUseLocalData()) {
+      return await localData.getProjects();
+    }
+
+    try {
+      const querySnapshot = await getDocs(
+        query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
+      );
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Project));
+    } catch (error) {
+      console.warn('Firebase getProjects failed, using local data:', error);
+      localStorage.setItem('useLocalData', 'true');
+      return await localData.getProjects();
+    }
   },
 
   // Get project by ID
   async getProject(id: string): Promise<Project | null> {
-    const docSnap = await getDoc(doc(db, 'projects', id));
-    if (docSnap.exists()) {
-      return { id: docSnap.id, ...docSnap.data() } as Project;
+    if (shouldUseLocalData()) {
+      return await localData.getProject(id);
     }
-    return null;
+
+    try {
+      const docSnap = await getDoc(doc(db, 'projects', id));
+      if (docSnap.exists()) {
+        return { id: docSnap.id, ...docSnap.data() } as Project;
+      }
+      return null;
+    } catch (error) {
+      console.warn('Firebase getProject failed, using local data:', error);
+      localStorage.setItem('useLocalData', 'true');
+      return await localData.getProject(id);
+    }
   },
 
-  // Update project
+  // Update project with automatic milestone creation for production
   async updateProject(id: string, updates: Partial<Project>): Promise<void> {
-    await updateDoc(doc(db, 'projects', id), {
-      ...updates,
-      updatedAt: serverTimestamp()
-    });
+    if (shouldUseLocalData()) {
+      await localData.updateProject(id, updates);
+      // Auto-create default milestones when project moves to production
+      if (updates.status === 'production') {
+        await this.createDefaultProductionMilestones(id);
+      }
+      return;
+    }
+
+    try {
+      // Handle nested object updates properly
+      const updateData: any = {
+        ...updates,
+        updatedAt: serverTimestamp()
+      };
+
+      // Handle nested field updates for Firestore
+      Object.keys(updates).forEach(key => {
+        if (key.includes('.')) {
+          // Handle dot notation for nested updates
+          const value = updates[key as keyof Project];
+          updateData[key] = value;
+          delete updateData[key.replace('.', '')];
+        }
+      });
+
+      await updateDoc(doc(db, 'projects', id), updateData);
+
+      // Auto-create default milestones when project moves to production
+      if (updates.status === 'production') {
+        await this.createDefaultProductionMilestones(id);
+      }
+    } catch (error) {
+      console.warn('Firebase updateProject failed, using local data:', error);
+      localStorage.setItem('useLocalData', 'true');
+      await localData.updateProject(id, updates);
+      if (updates.status === 'production') {
+        await this.createDefaultProductionMilestones(id);
+      }
+    }
+  },
+
+  // Create default production milestones
+  async createDefaultProductionMilestones(projectId: string): Promise<void> {
+    try {
+      // Check if default milestones already exist first
+      const existingMilestones = await this.getMilestonesByProject(projectId);
+
+      // If there are already milestones for this project, don't create defaults
+      if (existingMilestones.length > 0) {
+        console.log('Milestones already exist for project:', projectId);
+        return;
+      }
+
+      const defaultMilestones = [
+        {
+          projectId,
+          title: 'Assembly/Welding',
+          status: 'pending' as const,
+          startDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 weeks from now
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        },
+        {
+          projectId,
+          title: 'Painting',
+          status: 'pending' as const,
+          startDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 weeks from now
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        }
+      ];
+
+      // Create all default milestones
+      for (const milestone of defaultMilestones) {
+        await addDoc(collection(db, 'milestones'), milestone);
+      }
+
+      console.log('Created default milestones for project:', projectId);
+    } catch (error) {
+      console.error('Error creating default production milestones:', error);
+    }
+  },
+
+  // Get milestones by project (moved from milestonesService for dependency)
+  async getMilestonesByProject(projectId: string): Promise<Milestone[]> {
+    if (shouldUseLocalData()) {
+      return await localData.getMilestonesByProject(projectId);
+    }
+
+    try {
+      // First try with orderBy, if it fails due to index, try without orderBy
+      let q = query(
+        collection(db, 'milestones'),
+        where('projectId', '==', projectId),
+        orderBy('createdAt', 'asc')
+      );
+
+      let querySnapshot;
+      try {
+        querySnapshot = await getDocs(q);
+      } catch (indexError) {
+        // If index error, try without orderBy and sort in memory
+        console.warn('Index not available, querying without orderBy:', indexError);
+        q = query(
+          collection(db, 'milestones'),
+          where('projectId', '==', projectId)
+        );
+        querySnapshot = await getDocs(q);
+      }
+
+      const milestones = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Milestone));
+
+      // Sort in memory if we couldn't use orderBy
+      return milestones.sort((a, b) => {
+        const aDate = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
+        const bDate = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
+        return aDate.getTime() - bDate.getTime();
+      });
+    } catch (error) {
+      console.warn('Firebase getMilestonesByProject failed, using local data:', error);
+      localStorage.setItem('useLocalData', 'true');
+      return await localData.getMilestonesByProject(projectId);
+    }
   },
 
   // Delete project
@@ -199,13 +404,19 @@ export const complaintsService = {
 
 // Users Service
 export const usersService = {
-  // Create user profile
+  // Create user profile with UID as document ID
   async createUser(user: Omit<User, 'id' | 'createdAt'>): Promise<string> {
-    const docRef = await addDoc(collection(db, 'users'), {
+    if (!user.uid) {
+      throw new Error('User UID is required for user creation');
+    }
+
+    // Use setDoc with UID as document ID instead of addDoc
+    await setDoc(doc(db, 'users', user.uid), {
       ...user,
-      createdAt: serverTimestamp()
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     });
-    return docRef.id;
+    return user.uid;
   },
 
   // Get all users
@@ -257,16 +468,42 @@ export const milestonesService = {
 
   // Get milestones by project
   async getMilestonesByProject(projectId: string): Promise<Milestone[]> {
-    const q = query(
-      collection(db, 'milestones'),
-      where('projectId', '==', projectId),
-      orderBy('createdAt', 'asc')
-    );
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as Milestone));
+    try {
+      // First try with orderBy, if it fails due to index, try without orderBy
+      let q = query(
+        collection(db, 'milestones'),
+        where('projectId', '==', projectId),
+        orderBy('createdAt', 'asc')
+      );
+
+      let querySnapshot;
+      try {
+        querySnapshot = await getDocs(q);
+      } catch (indexError) {
+        // If index error, try without orderBy and sort in memory
+        console.warn('Index not available, querying without orderBy:', indexError);
+        q = query(
+          collection(db, 'milestones'),
+          where('projectId', '==', projectId)
+        );
+        querySnapshot = await getDocs(q);
+      }
+
+      const milestones = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Milestone));
+
+      // Sort in memory if we couldn't use orderBy
+      return milestones.sort((a, b) => {
+        const aDate = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
+        const bDate = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
+        return aDate.getTime() - bDate.getTime();
+      });
+    } catch (error) {
+      console.error('Error getting milestones:', error);
+      return [];
+    }
   },
 
   // Update milestone
@@ -280,6 +517,22 @@ export const milestonesService = {
   // Delete milestone
   async deleteMilestone(id: string): Promise<void> {
     await deleteDoc(doc(db, 'milestones', id));
+  },
+
+  // Update milestone status
+  async updateMilestoneStatus(id: string, status: 'pending' | 'in-progress' | 'completed'): Promise<void> {
+    const updates: any = {
+      status,
+      updatedAt: serverTimestamp()
+    };
+
+    if (status === 'in-progress') {
+      updates.startedAt = serverTimestamp();
+    } else if (status === 'completed') {
+      updates.completedAt = serverTimestamp();
+    }
+
+    await updateDoc(doc(db, 'milestones', id), updates);
   }
 };
 
@@ -308,9 +561,9 @@ export const statisticsService = {
       complaintsService.getComplaints()
     ]);
 
-    const activeProjects = projects.filter(p => p.status !== 'Completed').length;
-    const completedProjects = projects.filter(p => p.status === 'Completed').length;
-    const inProduction = projects.filter(p => p.status === 'Production').length;
+    const activeProjects = projects.filter(p => p.status !== 'completed').length;
+    const completedProjects = projects.filter(p => p.status === 'completed').length;
+    const inProduction = projects.filter(p => p.status === 'production').length;
     const openComplaints = complaints.filter(c => c.status === 'open').length;
 
     return {

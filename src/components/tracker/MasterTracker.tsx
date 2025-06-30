@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Search, Clock, CheckCircle, AlertTriangle, Eye } from 'lucide-react';
 import ModuleHeader from '../common/ModuleHeader';
+import ProjectDetailsModal from './ProjectDetailsModal';
 import { useAuth } from '../../contexts/AuthContext';
-import { projectsService, milestonesService, type Project, type Milestone } from '../../services/firebaseService';
+import { projectsService, type Project, type Milestone } from '../../services/firebaseService';
+import { canViewAmount } from '../../utils/permissions';
 
 interface ProjectWithMilestones extends Project {
   milestones?: Milestone[];
@@ -18,8 +20,11 @@ const MasterTracker: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('all');
   const [teamFilter, setTeamFilter] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'timeline' | 'cards' | 'table'>('timeline');
+  const [viewMode, setViewMode] = useState<'overview' | 'timeline' | 'cards' | 'table'>('overview');
   const [selectedProject, setSelectedProject] = useState<ProjectWithMilestones | null>(null);
+
+  // Get user permissions for amount visibility
+  const canViewAmountField = canViewAmount(currentUser?.role || 'sales');
 
   // Load all projects with milestones
   useEffect(() => {
@@ -31,16 +36,16 @@ const MasterTracker: React.FC = () => {
         // Enhance projects with milestone data and calculations
         const enhancedProjects = await Promise.all(
           allProjects.map(async (project) => {
-            const milestones = await milestonesService.getMilestonesByProject(project.id!);
+            const milestones = await projectsService.getMilestonesByProject(project.id!);
 
             // Calculate days in current stage
-            const createdDate = new Date(project.createdAt.toDate());
+            const createdDate = project.createdAt?.toDate ? new Date(project.createdAt.toDate()) : new Date(project.createdAt);
             const today = new Date();
             const daysInStage = Math.floor((today.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
 
             // Check if overdue
-            const completionDate = new Date(project.completionDate);
-            const isOverdue = today > completionDate && project.status !== 'Completed';
+            const deliveryDate = new Date(project.deliveryDate);
+            const isOverdue = today > deliveryDate && project.status !== 'completed';
 
             return {
               ...project,
@@ -62,15 +67,19 @@ const MasterTracker: React.FC = () => {
     loadProjectsData();
   }, []);
 
+  // All users can see all projects - no role-based filtering
+  // Role-based information visibility is handled within the display components
+  const roleFilteredProjects = projects;
+
   // Filter projects based on search and filters
-  const filteredProjects = projects.filter(project => {
+  const filteredProjects = roleFilteredProjects.filter(project => {
     const matchesSearch = project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          project.description?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
 
     const matchesDate = dateFilter === 'all' || (() => {
-      const projectDate = new Date(project.completionDate);
+      const projectDate = new Date(project.deliveryDate);
       const today = new Date();
       const thirtyDaysFromNow = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
 
@@ -89,13 +98,13 @@ const MasterTracker: React.FC = () => {
     const matchesTeam = teamFilter === 'all' || (() => {
       switch (teamFilter) {
         case 'sales':
-          return project.status === 'DNE';
+          return project.status === 'sales';
         case 'design':
-          return project.status === 'DNE';
+          return project.status === 'dne';
         case 'production':
-          return project.status === 'Production';
+          return project.status === 'production';
         case 'installation':
-          return project.status === 'Installation';
+          return project.status === 'installation';
         default:
           return true;
       }
@@ -105,29 +114,33 @@ const MasterTracker: React.FC = () => {
   });
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'DNE':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'Production':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
-      case 'Installation':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'Completed':
+    switch (status.toLowerCase()) {
+      case 'sales':
         return 'bg-green-100 text-green-800 border-green-200';
+      case 'dne':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'production':
+        return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'installation':
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'completed':
+        return 'bg-gray-100 text-gray-800 border-gray-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
   const getProgressPercentage = (project: ProjectWithMilestones) => {
-    switch (project.status) {
-      case 'DNE':
+    switch (project.status.toLowerCase()) {
+      case 'sales':
+        return 10;
+      case 'dne':
         return 25;
-      case 'Production':
+      case 'production':
         return 50;
-      case 'Installation':
+      case 'installation':
         return 75;
-      case 'Completed':
+      case 'completed':
         return 100;
       default:
         return 0;
@@ -135,17 +148,36 @@ const MasterTracker: React.FC = () => {
   };
 
   const getResponsibleTeam = (status: string) => {
-    switch (status) {
-      case 'DNE':
+    switch (status.toLowerCase()) {
+      case 'sales':
+        return 'Sales Team';
+      case 'dne':
         return 'Design Team';
-      case 'Production':
+      case 'production':
         return 'Production Team';
-      case 'Installation':
+      case 'installation':
         return 'Installation Team';
-      case 'Completed':
+      case 'completed':
         return 'Completed';
       default:
         return 'Sales Team';
+    }
+  };
+
+  const getStatusDisplayName = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'sales':
+        return 'Sales';
+      case 'dne':
+        return 'Design & Engineering';
+      case 'production':
+        return 'Production';
+      case 'installation':
+        return 'Installation';
+      case 'completed':
+        return 'Completed';
+      default:
+        return status.charAt(0).toUpperCase() + status.slice(1);
     }
   };
 
@@ -153,54 +185,29 @@ const MasterTracker: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-rose-50">
       <ModuleHeader
         title="Master Tracker"
-        subtitle="Comprehensive overview of all projects and stages"
+        subtitle="Read-only overview of all projects and stages across all departments - No editing allowed"
         icon={BarChart3}
         iconColor="text-white"
         iconBgColor="bg-gradient-to-r from-red-500 to-red-600"
       >
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setViewMode('timeline')}
-            className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-              viewMode === 'timeline'
-                ? 'bg-white text-red-600'
-                : 'bg-red-400 text-white hover:bg-red-300'
-            }`}
-          >
-            Timeline
-          </button>
-          <button
-            onClick={() => setViewMode('cards')}
-            className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-              viewMode === 'cards'
-                ? 'bg-white text-red-600'
-                : 'bg-red-400 text-white hover:bg-red-300'
-            }`}
-          >
-            Cards
-          </button>
-          <button
-            onClick={() => setViewMode('table')}
-            className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-              viewMode === 'table'
-                ? 'bg-white text-red-600'
-                : 'bg-red-400 text-white hover:bg-red-300'
-            }`}
-          >
-            Table
-          </button>
+        <div className="flex items-center space-x-3">
+          {/* Read-only indicator */}
+          <div className="flex items-center bg-red-400 text-white px-3 py-1 rounded-lg text-sm">
+            <Eye className="w-4 h-4 mr-1" />
+            View Only
+          </div>
         </div>
       </ModuleHeader>
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Statistics Overview */}
+        {/* Statistics Overview - All projects visible to all users */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 shadow-lg border border-white/50">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Total Projects</p>
-                <p className="text-2xl font-bold text-gray-900">{projects.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{roleFilteredProjects.length}</p>
               </div>
               <BarChart3 className="w-8 h-8 text-red-500" />
             </div>
@@ -211,7 +218,7 @@ const MasterTracker: React.FC = () => {
               <div>
                 <p className="text-sm text-gray-600">In Progress</p>
                 <p className="text-2xl font-bold text-orange-600">
-                  {projects.filter(p => p.status !== 'Completed').length}
+                  {roleFilteredProjects.filter(p => p.status !== 'completed').length}
                 </p>
               </div>
               <Clock className="w-8 h-8 text-orange-500" />
@@ -223,7 +230,7 @@ const MasterTracker: React.FC = () => {
               <div>
                 <p className="text-sm text-gray-600">Completed</p>
                 <p className="text-2xl font-bold text-green-600">
-                  {projects.filter(p => p.status === 'Completed').length}
+                  {roleFilteredProjects.filter(p => p.status === 'completed').length}
                 </p>
               </div>
               <CheckCircle className="w-8 h-8 text-green-500" />
@@ -235,10 +242,59 @@ const MasterTracker: React.FC = () => {
               <div>
                 <p className="text-sm text-gray-600">Overdue</p>
                 <p className="text-2xl font-bold text-red-600">
-                  {projects.filter(p => p.isOverdue).length}
+                  {roleFilteredProjects.filter(p => p.isOverdue).length}
                 </p>
               </div>
               <AlertTriangle className="w-8 h-8 text-red-500" />
+            </div>
+          </div>
+        </div>
+
+        {/* View Mode Navigation - Second Layer */}
+        <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 shadow-lg border border-white/50 mb-6">
+          <div className="flex items-center justify-between">
+            {/* <h3 className="text-lg font-semibold text-gray-900">View Mode</h3> */}
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setViewMode('overview')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'overview'
+                    ? 'bg-red-500 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Overview
+              </button>
+              <button
+                onClick={() => setViewMode('timeline')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'timeline'
+                    ? 'bg-red-500 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Timeline
+              </button>
+              <button
+                onClick={() => setViewMode('cards')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'cards'
+                    ? 'bg-red-500 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Cards
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'table'
+                    ? 'bg-red-500 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Table
+              </button>
             </div>
           </div>
         </div>
@@ -265,10 +321,11 @@ const MasterTracker: React.FC = () => {
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
             >
               <option value="all">All Status</option>
-              <option value="DNE">Design (DNE)</option>
-              <option value="Production">Production</option>
-              <option value="Installation">Installation</option>
-              <option value="Completed">Completed</option>
+              <option value="sales">Sales</option>
+              <option value="dne">Design (DNE)</option>
+              <option value="production">Production</option>
+              <option value="installation">Installation</option>
+              <option value="completed">Completed</option>
             </select>
 
             {/* Date Filter */}
@@ -319,6 +376,285 @@ const MasterTracker: React.FC = () => {
           </div>
         ) : (
           <>
+            {/* Overview */}
+            {viewMode === 'overview' && (
+              <div className="space-y-6">
+                {/* Module Delivery Times - All modules visible to all users */}
+                <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-lg border border-white/50">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-6">
+                    Module Delivery Times (All Teams)
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {/* Sales Module - Visible to all users */}
+                    <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-medium text-green-800">Sales</h4>
+                        <span className="text-2xl font-bold text-green-600">
+                          {roleFilteredProjects.filter(p => p.status === 'sales').length}
+                        </span>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-green-700">Avg. Time:</span>
+                          <span className="font-medium">7-14 days</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-green-700">Current Projects:</span>
+                          <span className="font-medium">{roleFilteredProjects.filter(p => p.status === 'sales').length}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Design Module - Visible to all users */}
+                    <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-medium text-blue-800">Design & Engineering</h4>
+                        <span className="text-2xl font-bold text-blue-600">
+                          {roleFilteredProjects.filter(p => p.status === 'dne').length}
+                        </span>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-blue-700">Avg. Time:</span>
+                          <span className="font-medium">14-21 days</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-blue-700">Current Projects:</span>
+                          <span className="font-medium">{roleFilteredProjects.filter(p => p.status === 'dne').length}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Production Module - Visible to all users */}
+                    <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-medium text-orange-800">Production</h4>
+                        <span className="text-2xl font-bold text-orange-600">
+                          {roleFilteredProjects.filter(p => p.status === 'production').length}
+                        </span>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-orange-700">Avg. Time:</span>
+                          <span className="font-medium">21-35 days</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-orange-700">Current Projects:</span>
+                          <span className="font-medium">{roleFilteredProjects.filter(p => p.status === 'production').length}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Installation Module - Visible to all users */}
+                    <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-medium text-purple-800">Installation</h4>
+                        <span className="text-2xl font-bold text-purple-600">
+                          {roleFilteredProjects.filter(p => p.status === 'installation').length}
+                        </span>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-purple-700">Avg. Time:</span>
+                          <span className="font-medium">7-14 days</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-purple-700">Current Projects:</span>
+                          <span className="font-medium">{roleFilteredProjects.filter(p => p.status === 'installation').length}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Project Delivery Timeline Overview */}
+                <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-lg border border-white/50">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-6">Project Delivery Timeline Overview</h3>
+
+                  <div className="space-y-4">
+                    {filteredProjects.map((project) => {
+                      const getModuleDeliveryInfo = (project: ProjectWithMilestones) => {
+                        const createdDate = project.createdAt?.toDate ? new Date(project.createdAt.toDate()) : new Date(project.createdAt);
+                        const deliveryDate = new Date(project.deliveryDate);
+
+                        return {
+                          projectStart: createdDate.toLocaleDateString(),
+                          salesCompleted: project.salesData?.completedAt ?
+                            (project.salesData.completedAt.toDate ? project.salesData.completedAt.toDate() : new Date(project.salesData.completedAt)).toLocaleDateString() :
+                            (project.status === 'sales' ? 'In Progress' : 'Not Started'),
+                          designCompleted: project.designData?.completedAt ?
+                            (project.designData.completedAt.toDate ? project.designData.completedAt.toDate() : new Date(project.designData.completedAt)).toLocaleDateString() :
+                            (project.status === 'dne' ? 'In Progress' : 'Not Started'),
+                          productionCompleted: project.productionData?.completedAt ?
+                            (project.productionData.completedAt.toDate ? project.productionData.completedAt.toDate() : new Date(project.productionData.completedAt)).toLocaleDateString() :
+                            (project.status === 'production' ? 'In Progress' : 'Not Started'),
+                          installationCompleted: project.installationData?.completedAt ?
+                            (project.installationData.completedAt.toDate ? project.installationData.completedAt.toDate() : new Date(project.installationData.completedAt)).toLocaleDateString() :
+                            (project.status === 'installation' ? 'In Progress' : 'Not Started'),
+                          expectedCompletion: deliveryDate.toLocaleDateString(),
+                          currentStatus: project.status
+                        };
+                      };
+
+                      const deliveryInfo = getModuleDeliveryInfo(project);
+
+                      return (
+                        <div key={project.id} className="border border-gray-200 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-4">
+                            <div>
+                              <h4 className="font-medium text-gray-900">{project.name}</h4>
+                              <p className="text-sm text-gray-600">
+                                Started: {deliveryInfo.projectStart} • Expected Completion: {deliveryInfo.expectedCompletion}
+                                {project.isOverdue && <span className="text-red-600 ml-2">• Overdue</span>}
+                              </p>
+                            </div>
+                            <span className={`px-3 py-1 rounded-full text-sm ${getStatusColor(project.status)}`}>
+                              {getStatusDisplayName(project.status)}
+                            </span>
+                          </div>
+
+                          {/* Module Delivery Dates Table - Role-based View */}
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b border-gray-200">
+                                  <th className="text-left py-2 px-3 font-medium text-gray-700">Module</th>
+                                  <th className="text-left py-2 px-3 font-medium text-gray-700">Delivery Date</th>
+                                  <th className="text-left py-2 px-3 font-medium text-gray-700">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {/* Sales - Visible to all users */}
+                                <tr className="border-b border-gray-100">
+                                  <td className="py-2 px-3 text-green-700 font-medium">Sales</td>
+                                  <td className="py-2 px-3">{deliveryInfo.salesCompleted}</td>
+                                  <td className="py-2 px-3">
+                                    <span className={`px-2 py-1 rounded-full text-xs ${
+                                      deliveryInfo.salesCompleted !== 'In Progress' && deliveryInfo.salesCompleted !== 'Not Started'
+                                        ? 'bg-green-100 text-green-800'
+                                        : deliveryInfo.salesCompleted === 'In Progress'
+                                          ? 'bg-blue-100 text-blue-800'
+                                          : 'bg-gray-100 text-gray-800'
+                                    }`}>
+                                      {deliveryInfo.salesCompleted !== 'In Progress' && deliveryInfo.salesCompleted !== 'Not Started'
+                                        ? 'Completed'
+                                        : deliveryInfo.salesCompleted}
+                                    </span>
+                                  </td>
+                                </tr>
+
+                                {/* Design - Visible to all users */}
+                                <tr className="border-b border-gray-100">
+                                  <td className="py-2 px-3 text-blue-700 font-medium">Design & Engineering</td>
+                                  <td className="py-2 px-3">{deliveryInfo.designCompleted}</td>
+                                  <td className="py-2 px-3">
+                                    <span className={`px-2 py-1 rounded-full text-xs ${
+                                      deliveryInfo.designCompleted !== 'In Progress' && deliveryInfo.designCompleted !== 'Not Started'
+                                        ? 'bg-green-100 text-green-800'
+                                        : deliveryInfo.designCompleted === 'In Progress'
+                                          ? 'bg-blue-100 text-blue-800'
+                                          : 'bg-gray-100 text-gray-800'
+                                    }`}>
+                                      {deliveryInfo.designCompleted !== 'In Progress' && deliveryInfo.designCompleted !== 'Not Started'
+                                        ? 'Completed'
+                                        : deliveryInfo.designCompleted}
+                                    </span>
+                                  </td>
+                                </tr>
+
+                                {/* Production - Visible to all users */}
+                                <tr className="border-b border-gray-100">
+                                  <td className="py-2 px-3 text-orange-700 font-medium">Production</td>
+                                  <td className="py-2 px-3">{deliveryInfo.productionCompleted}</td>
+                                  <td className="py-2 px-3">
+                                    <span className={`px-2 py-1 rounded-full text-xs ${
+                                      deliveryInfo.productionCompleted !== 'In Progress' && deliveryInfo.productionCompleted !== 'Not Started'
+                                        ? 'bg-green-100 text-green-800'
+                                        : deliveryInfo.productionCompleted === 'In Progress'
+                                          ? 'bg-blue-100 text-blue-800'
+                                          : 'bg-gray-100 text-gray-800'
+                                    }`}>
+                                      {deliveryInfo.productionCompleted !== 'In Progress' && deliveryInfo.productionCompleted !== 'Not Started'
+                                        ? 'Completed'
+                                        : deliveryInfo.productionCompleted}
+                                    </span>
+                                  </td>
+                                </tr>
+
+                                {/* Installation - Visible to all users */}
+                                <tr>
+                                  <td className="py-2 px-3 text-purple-700 font-medium">Installation</td>
+                                  <td className="py-2 px-3">{deliveryInfo.installationCompleted}</td>
+                                  <td className="py-2 px-3">
+                                    <span className={`px-2 py-1 rounded-full text-xs ${
+                                      deliveryInfo.installationCompleted !== 'In Progress' && deliveryInfo.installationCompleted !== 'Not Started'
+                                        ? 'bg-green-100 text-green-800'
+                                        : deliveryInfo.installationCompleted === 'In Progress'
+                                          ? 'bg-blue-100 text-blue-800'
+                                          : 'bg-gray-100 text-gray-800'
+                                    }`}>
+                                      {deliveryInfo.installationCompleted !== 'In Progress' && deliveryInfo.installationCompleted !== 'Not Started'
+                                        ? 'Completed'
+                                        : deliveryInfo.installationCompleted}
+                                    </span>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Project Flow Summary */}
+                <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-lg border border-white/50">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-6">Project Flow Summary</h3>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Flow Diagram */}
+                    <div className="space-y-4">
+                      <h4 className="font-medium text-gray-800">Standard Project Flow</h4>
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full whitespace-nowrap">Sales</div>
+                        <span className="text-gray-400">→</span>
+                        <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full whitespace-nowrap">Design</div>
+                        <span className="text-gray-400">→</span>
+                        <div className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full whitespace-nowrap">Production</div>
+                        <span className="text-gray-400">→</span>
+                        <div className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full whitespace-nowrap">Installation</div>
+                        <span className="text-gray-400">→</span>
+                        <div className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full whitespace-nowrap">Completed</div>
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        Total estimated delivery time: <span className="font-medium">49-84 days</span>
+                      </p>
+                    </div>
+
+                    {/* Recent Activity - All projects visible */}
+                    <div className="space-y-4">
+                      <h4 className="font-medium text-gray-800">Recent Activity (All Projects)</h4>
+                      <div className="space-y-2">
+                        {roleFilteredProjects.slice(0, 5).map((project) => (
+                          <div key={project.id} className="flex items-center justify-between text-sm">
+                            <span className="text-gray-600">{project.name}</span>
+                            <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(project.status)}`}>
+                              {getStatusDisplayName(project.status)}
+                            </span>
+                          </div>
+                        ))}
+                        {roleFilteredProjects.length === 0 && (
+                          <p className="text-gray-500 text-sm">No recent activity</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Timeline View */}
             {viewMode === 'timeline' && (
               <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-lg border border-white/50">
@@ -342,7 +678,7 @@ const MasterTracker: React.FC = () => {
                           <div className={`flex-shrink-0 w-4 h-4 rounded-full border-2 ${
                             project.isOverdue
                               ? 'bg-red-500 border-red-500'
-                              : project.status === 'Completed'
+                              : project.status === 'completed'
                               ? 'bg-green-500 border-green-500'
                               : 'bg-blue-500 border-blue-500'
                           }`}></div>
@@ -354,7 +690,7 @@ const MasterTracker: React.FC = () => {
                                 <div className="flex items-center space-x-3 mb-2">
                                   <h4 className="text-lg font-semibold text-gray-900">{project.name}</h4>
                                   <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
-                                    {project.status}
+                                    {getStatusDisplayName(project.status)}
                                   </span>
                                   {project.isOverdue && (
                                     <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">
@@ -378,7 +714,7 @@ const MasterTracker: React.FC = () => {
                                   </div>
                                   <div>
                                     <p className="text-gray-500">Due Date</p>
-                                    <p className="font-medium">{new Date(project.completionDate).toLocaleDateString()}</p>
+                                    <p className="font-medium">{new Date(project.deliveryDate).toLocaleDateString()}</p>
                                   </div>
                                   <div>
                                     <p className="text-gray-500">Days in Stage</p>
@@ -395,7 +731,7 @@ const MasterTracker: React.FC = () => {
                                   <div className="w-full bg-gray-200 rounded-full h-2">
                                     <div
                                       className={`h-2 rounded-full transition-all duration-500 ${
-                                        project.status === 'Completed'
+                                        project.status === 'completed'
                                           ? 'bg-green-500'
                                           : project.isOverdue
                                           ? 'bg-red-500'
@@ -437,7 +773,7 @@ const MasterTracker: React.FC = () => {
                       <div className="flex items-start justify-between mb-4">
                         <h4 className="text-lg font-semibold text-gray-900">{project.name}</h4>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
-                          {project.status}
+                          {getStatusDisplayName(project.status)}
                         </span>
                       </div>
 
@@ -453,7 +789,7 @@ const MasterTracker: React.FC = () => {
                         <div className="w-full bg-gray-200 rounded-full h-2">
                           <div
                             className={`h-2 rounded-full transition-all duration-500 ${
-                              project.status === 'Completed'
+                              project.status === 'completed'
                                 ? 'bg-green-500'
                                 : project.isOverdue
                                 ? 'bg-red-500'
@@ -472,7 +808,7 @@ const MasterTracker: React.FC = () => {
                         <div className="flex justify-between">
                           <span className="text-gray-500">Due Date</span>
                           <span className={`font-medium ${project.isOverdue ? 'text-red-600' : ''}`}>
-                            {new Date(project.completionDate).toLocaleDateString()}
+                            {new Date(project.deliveryDate).toLocaleDateString()}
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -527,7 +863,7 @@ const MasterTracker: React.FC = () => {
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Days in Stage
                         </th>
-                        {(currentUser?.role === 'admin' || currentUser?.role === 'sales') && (
+                        {canViewAmountField && (
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Amount
                           </th>
@@ -559,7 +895,7 @@ const MasterTracker: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getStatusColor(project.status)}`}>
-                                {project.status}
+                                {getStatusDisplayName(project.status)}
                               </span>
                               {project.isOverdue && (
                                 <span className="ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
@@ -572,7 +908,7 @@ const MasterTracker: React.FC = () => {
                                 <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
                                   <div
                                     className={`h-2 rounded-full ${
-                                      project.status === 'Completed'
+                                      project.status === 'completed'
                                         ? 'bg-green-500'
                                         : project.isOverdue
                                         ? 'bg-red-500'
@@ -589,13 +925,13 @@ const MasterTracker: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               <span className={project.isOverdue ? 'text-red-600 font-medium' : ''}>
-                                {new Date(project.completionDate).toLocaleDateString()}
+                                {new Date(project.deliveryDate).toLocaleDateString()}
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               {project.daysInStage} days
                             </td>
-                            {(currentUser?.role === 'admin' || currentUser?.role === 'sales') && (
+                            {canViewAmountField && (
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                 {project.amount ? `RM ${project.amount.toLocaleString()}` : '-'}
                               </td>
@@ -619,104 +955,12 @@ const MasterTracker: React.FC = () => {
           </>
         )}
 
-        {/* Project Detail Modal */}
+        {/* Enhanced Project Detail Modal */}
         {selectedProject && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-              <div className="flex items-start justify-between mb-6">
-                <div>
-                  <h3 className="text-2xl font-semibold text-gray-900">{selectedProject.name}</h3>
-                  <div className="flex items-center space-x-3 mt-2">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(selectedProject.status)}`}>
-                      {selectedProject.status}
-                    </span>
-                    {selectedProject.isOverdue && (
-                      <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium">
-                        Overdue
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setSelectedProject(null)}
-                  className="text-gray-400 hover:text-gray-600 text-2xl"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Project Details */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-1">Description</h4>
-                    <p className="text-gray-900">{selectedProject.description || 'No description provided'}</p>
-                  </div>
-
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-1">Current Stage</h4>
-                    <p className="text-gray-900">{getResponsibleTeam(selectedProject.status)}</p>
-                  </div>
-
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-1">Progress</h4>
-                    <div className="flex items-center space-x-3">
-                      <div className="flex-1 bg-gray-200 rounded-full h-3">
-                        <div
-                          className={`h-3 rounded-full transition-all duration-500 ${
-                            selectedProject.status === 'Completed'
-                              ? 'bg-green-500'
-                              : selectedProject.isOverdue
-                              ? 'bg-red-500'
-                              : 'bg-blue-500'
-                          }`}
-                          style={{ width: `${getProgressPercentage(selectedProject)}%` }}
-                        ></div>
-                      </div>
-                      <span className="text-sm font-medium text-gray-900">
-                        {getProgressPercentage(selectedProject)}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-1">Due Date</h4>
-                    <p className={`text-gray-900 ${selectedProject.isOverdue ? 'text-red-600 font-medium' : ''}`}>
-                      {new Date(selectedProject.completionDate).toLocaleDateString()}
-                    </p>
-                  </div>
-
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-1">Days in Current Stage</h4>
-                    <p className="text-gray-900">{selectedProject.daysInStage} days</p>
-                  </div>
-
-                  {(currentUser?.role === 'admin' || currentUser?.role === 'sales') && selectedProject.amount && (
-                    <div>
-                      <h4 className="text-sm font-medium text-gray-500 mb-1">Project Amount</h4>
-                      <p className="text-gray-900 font-semibold">RM {selectedProject.amount.toLocaleString()}</p>
-                    </div>
-                  )}
-
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-1">Created Date</h4>
-                    <p className="text-gray-900">{new Date(selectedProject.createdAt.toDate()).toLocaleDateString()}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setSelectedProject(null)}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-6 rounded-xl transition-colors"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
+          <ProjectDetailsModal
+            project={selectedProject}
+            onClose={() => setSelectedProject(null)}
+          />
         )}
       </div>
     </div>

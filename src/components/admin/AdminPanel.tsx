@@ -15,9 +15,27 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getAllUsers, saveUser, deleteUser } from '../../services/offlineStorage';
+import { usersService } from '../../services/firebaseService';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../../config/firebase';
 import { addNetworkListener, forceSync } from '../../services/syncService';
 import type { User as AppUser, UserRole } from '../../types';
 
+/**
+ * AdminPanel Component
+ *
+ * This component serves as both the administrative user management interface
+ * and the user settings interface for the Progress Tracker application.
+ *
+ * Features:
+ * - User creation, editing, and deletion
+ * - Role-based access control
+ * - Offline/online synchronization
+ * - Responsive design for mobile, tablet, and desktop
+ * - Firebase Authentication integration
+ *
+ * Access: Admin role only
+ */
 const AdminPanel: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
@@ -30,9 +48,11 @@ const AdminPanel: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    password: '',
     role: 'sales' as UserRole,
     department: ''
   });
+  const [saving, setSaving] = useState(false);
 
   // Check if current user is admin
   useEffect(() => {
@@ -55,8 +75,26 @@ const AdminPanel: React.FC = () => {
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const allUsers = await getAllUsers();
-      setUsers(allUsers);
+
+      // Try to load from Firebase first, fallback to local storage
+      try {
+        const firebaseUsers = await usersService.getUsers();
+        // Convert Firebase users to AppUser format
+        const appUsers: AppUser[] = firebaseUsers.map(user => ({
+          uid: (user as any).uid || user.id || '',
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          department: (user as any).department,
+          createdAt: (user as any).createdAt?.toDate?.() || new Date(),
+          updatedAt: (user as any).updatedAt?.toDate?.() || new Date()
+        }));
+        setUsers(appUsers);
+      } catch (firebaseError) {
+        console.warn('Firebase users loading failed, using local storage:', firebaseError);
+        const localUsers = await getAllUsers();
+        setUsers(localUsers);
+      }
     } catch (error) {
       console.error('Error loading users:', error);
     } finally {
@@ -68,6 +106,7 @@ const AdminPanel: React.FC = () => {
     setFormData({
       name: '',
       email: '',
+      password: '',
       role: 'sales',
       department: ''
     });
@@ -79,6 +118,7 @@ const AdminPanel: React.FC = () => {
     setFormData({
       name: user.name,
       email: user.email,
+      password: '', // Don't pre-fill password for security
       role: user.role,
       department: user.department || ''
     });
@@ -88,39 +128,149 @@ const AdminPanel: React.FC = () => {
 
   const handleSaveUser = async () => {
     try {
-      if (editingUser) {
-        // Update existing user
-        const updatedUser: AppUser = {
-          ...editingUser,
-          name: formData.name,
-          email: formData.email,
-          role: formData.role,
-          department: formData.department || undefined,
-          updatedAt: new Date()
-        };
-        
-        await saveUser(updatedUser);
-        setUsers(users.map(u => u.uid === updatedUser.uid ? updatedUser : u));
-      } else {
-        // Add new user
-        const newUser: AppUser = {
-          uid: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          name: formData.name,
-          email: formData.email,
-          role: formData.role,
-          department: formData.department || undefined,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-        
-        await saveUser(newUser);
-        setUsers([...users, newUser]);
+      setSaving(true);
+      console.log('Starting user save process...', { formData, editingUser });
+
+      // Validate form data
+      if (!formData.name.trim() || !formData.email.trim()) {
+        alert('Name and email are required');
+        setSaving(false);
+        return;
       }
-      
+
+      if (!editingUser && !formData.password.trim()) {
+        alert('Password is required for new users');
+        setSaving(false);
+        return;
+      }
+
+      if (!editingUser && formData.password.length < 6) {
+        alert('Password must be at least 6 characters long');
+        setSaving(false);
+        return;
+      }
+
+      // Check if email already exists (for new users)
+      if (!editingUser && users.some(u => u.email === formData.email)) {
+        alert('A user with this email already exists');
+        setSaving(false);
+        return;
+      }
+
+      console.log('Validation passed, proceeding with user creation/update...');
+
+      if (editingUser) {
+        // Update existing user in Firestore
+        try {
+          // Find the user document by UID
+          const firebaseUsers = await usersService.getUsers();
+          const existingUser = firebaseUsers.find(u => (u as any).uid === editingUser.uid || u.email === editingUser.email);
+
+          if (existingUser && existingUser.id) {
+            await usersService.updateUser(existingUser.id, {
+              name: formData.name,
+              email: formData.email,
+              role: formData.role,
+              updatedAt: new Date()
+            } as any);
+
+            // Update local state
+            const updatedUser: AppUser = {
+              ...editingUser,
+              name: formData.name,
+              email: formData.email,
+              role: formData.role,
+              department: formData.department || undefined,
+              updatedAt: new Date()
+            };
+            setUsers(users.map(u => u.uid === updatedUser.uid ? updatedUser : u));
+
+            alert('User updated successfully!');
+          } else {
+            throw new Error('User not found in Firebase');
+          }
+        } catch (firebaseError) {
+          console.warn('Firebase update failed, updating locally:', firebaseError);
+          // Fallback to local storage
+          const updatedUser: AppUser = {
+            ...editingUser,
+            name: formData.name,
+            email: formData.email,
+            role: formData.role,
+            department: formData.department || undefined,
+            updatedAt: new Date()
+          };
+          await saveUser(updatedUser);
+          setUsers(users.map(u => u.uid === updatedUser.uid ? updatedUser : u));
+          alert('User updated locally (Firebase unavailable)');
+        }
+      } else {
+        // Create new user with Firebase Auth + Firestore
+        try {
+          // Create Firebase Authentication user
+          const userCredential = await createUserWithEmailAndPassword(
+            auth,
+            formData.email,
+            formData.password
+          );
+
+          // Create Firestore user document using the Firebase UID as document ID
+          const userData = {
+            uid: userCredential.user.uid,
+            name: formData.name,
+            email: formData.email,
+            role: formData.role,
+            department: formData.department || undefined,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+
+          // Save to Firestore with UID as document ID
+          await usersService.createUser(userData as any);
+
+          // Add to local state
+          const newUser: AppUser = userData;
+          setUsers([...users, newUser]);
+          console.log('User created successfully in Firebase:', newUser);
+
+          alert('User created successfully with Firebase Authentication!');
+        } catch (firebaseError) {
+          console.warn('Firebase user creation failed, creating locally:', firebaseError);
+
+          // Fallback to local storage only
+          const newUser: AppUser = {
+            uid: `local_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+            name: formData.name,
+            email: formData.email,
+            role: formData.role,
+            department: formData.department || undefined,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+
+          await saveUser(newUser);
+          setUsers([...users, newUser]);
+          console.log('User created locally:', newUser);
+
+          alert('User created locally (Firebase unavailable). Note: User will not be able to log in until Firebase is available.');
+        }
+      }
+
+      // Reset form and close modal
       setShowAddUser(false);
       setEditingUser(null);
+      setFormData({
+        name: '',
+        email: '',
+        password: '',
+        role: 'sales',
+        department: ''
+      });
     } catch (error) {
       console.error('Error saving user:', error);
+      alert(`Error saving user: ${(error as any)?.message || 'Unknown error'}`);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -199,8 +349,8 @@ const AdminPanel: React.FC = () => {
                   <Shield className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Admin Panel</h1>
-                  <p className="text-sm text-gray-600">Manage users and system settings</p>
+                  <h1 className="text-2xl font-bold text-gray-900">Admin Module</h1>
+                  <p className="text-sm text-gray-600">Manage users, settings, and system analytics</p>
                 </div>
               </div>
             </div>
@@ -313,7 +463,8 @@ const AdminPanel: React.FC = () => {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-full divide-y divide-gray-200 lg:table hidden">
+                  {/* Desktop table view */}
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -328,26 +479,44 @@ const AdminPanel: React.FC = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Created
                       </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {users.map((user) => (
                       <tr key={user.uid} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
+                        <td className="px-6 py-4">
+                          <div className="flex items-start">
                             <div className="flex-shrink-0 h-10 w-10">
-                              <div className="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
-                                <span className="text-sm font-medium text-gray-700">
+                              <div className="h-10 w-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
+                                <span className="text-sm font-medium text-white">
                                   {user.name.charAt(0).toUpperCase()}
                                 </span>
                               </div>
                             </div>
-                            <div className="ml-4">
+                            <div className="ml-4 flex-1">
                               <div className="text-sm font-medium text-gray-900">{user.name}</div>
-                              <div className="text-sm text-gray-500">{user.email}</div>
+                              <div className="text-sm text-gray-500 mb-2">{user.email}</div>
+                              {/* Action buttons positioned under email */}
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  onClick={() => handleEditUser(user)}
+                                  className="inline-flex items-center px-2 py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors duration-200"
+                                  title="Edit User"
+                                >
+                                  <Edit className="w-3 h-3 mr-1" />
+                                  Edit
+                                </button>
+                                {user.uid !== currentUser?.uid && (
+                                  <button
+                                    onClick={() => handleDeleteUser(user)}
+                                    className="inline-flex items-center px-2 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors duration-200"
+                                    title="Delete User"
+                                  >
+                                    <Trash2 className="w-3 h-3 mr-1" />
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -363,28 +532,67 @@ const AdminPanel: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {user.createdAt.toLocaleDateString()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <div className="flex items-center justify-end space-x-2">
-                            <button
-                              onClick={() => handleEditUser(user)}
-                              className="text-blue-600 hover:text-blue-900 p-1"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            {user.uid !== currentUser?.uid && (
-                              <button
-                                onClick={() => handleDeleteUser(user)}
-                                className="text-red-600 hover:text-red-900 p-1"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+
+                {/* Mobile card view */}
+                <div className="lg:hidden space-y-4">
+                  {users.map((user) => (
+                    <div key={user.uid} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0 h-12 w-12">
+                          <div className="h-12 w-12 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
+                            <span className="text-sm font-medium text-white">
+                              {user.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-900 truncate">{user.name}</div>
+                          <div className="text-sm text-gray-500 truncate mb-2">{user.email}</div>
+
+                          <div className="flex flex-wrap items-center gap-2 mb-3">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
+                              <span className="mr-1">{getRoleIcon(user.role)}</span>
+                              {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                            </span>
+                            {user.department && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                {user.department}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="text-xs text-gray-500 mb-3">
+                            Created: {user.createdAt.toLocaleDateString()}
+                          </div>
+
+                          {/* Action buttons for mobile */}
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handleEditUser(user)}
+                              className="flex-1 inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors duration-200"
+                            >
+                              <Edit className="w-4 h-4 mr-1" />
+                              Edit
+                            </button>
+                            {user.uid !== currentUser?.uid && (
+                              <button
+                                onClick={() => handleDeleteUser(user)}
+                                className="flex-1 inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors duration-200"
+                              >
+                                <Trash2 className="w-4 h-4 mr-1" />
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -394,7 +602,7 @@ const AdminPanel: React.FC = () => {
       {/* Add/Edit User Modal */}
       {showAddUser && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+          <div className="bg-white rounded-2xl p-4 sm:p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               {editingUser ? 'Edit User' : 'Add New User'}
             </h3>
@@ -421,6 +629,21 @@ const AdminPanel: React.FC = () => {
                   placeholder="Enter email address"
                 />
               </div>
+
+              {!editingUser && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                  <input
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter password (min 6 characters)"
+                    minLength={6}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Password is required for new users</p>
+                </div>
+              )}
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
@@ -449,18 +672,22 @@ const AdminPanel: React.FC = () => {
               </div>
             </div>
             
-            <div className="flex items-center justify-end space-x-3 mt-6">
+            <div className="flex flex-col sm:flex-row items-center justify-end space-y-2 sm:space-y-0 sm:space-x-3 mt-6">
               <button
                 onClick={() => setShowAddUser(false)}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="w-full sm:w-auto px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveUser}
-                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+                disabled={saving}
+                className="w-full sm:w-auto px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
               >
-                {editingUser ? 'Update' : 'Add'} User
+                {saving && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                )}
+                <span>{saving ? 'Saving...' : (editingUser ? 'Update' : 'Add')} User</span>
               </button>
             </div>
           </div>

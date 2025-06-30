@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import NetworkStatus from '../common/NetworkStatus';
+import SyncStatusDashboard from '../common/SyncStatusDashboard';
+import MysteelLogo from '../common/MysteelLogo';
 import { statisticsService } from '../../services/firebaseService';
-import { testingMode } from '../../utils/testingMode';
+// import { testingMode } from '../../utils/testingMode';
 import {
   DollarSign,
   Wrench,
@@ -13,7 +15,8 @@ import {
   MessageSquare,
   LogOut,
   User,
-  Settings
+  Settings,
+  Activity
 } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
@@ -28,6 +31,7 @@ const Dashboard: React.FC = () => {
     totalComplaints: 0
   });
   const [loading, setLoading] = useState(true);
+  const [showSyncDashboard, setShowSyncDashboard] = useState(false);
 
   // Load statistics from Firebase
   useEffect(() => {
@@ -38,6 +42,19 @@ const Dashboard: React.FC = () => {
         setStats(dashboardStats);
       } catch (error) {
         console.error('Error loading statistics:', error);
+
+        // Handle permission errors gracefully
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'permission-denied') {
+          console.warn('Dashboard statistics unavailable due to permissions, using fallback data');
+          setStats({
+            activeProjects: 0,
+            completedProjects: 0,
+            inProduction: 0,
+            openComplaints: 0,
+            totalProjects: 0,
+            totalComplaints: 0
+          });
+        }
       } finally {
         setLoading(false);
       }
@@ -67,7 +84,7 @@ const Dashboard: React.FC = () => {
       color: 'bg-green-500',
       hoverColor: 'hover:bg-green-600',
       path: '/sales',
-      roles: ['admin', 'sales']
+      editRoles: ['admin', 'sales'] // Only these roles can edit
     },
     {
       id: 'dne',
@@ -77,7 +94,7 @@ const Dashboard: React.FC = () => {
       color: 'bg-blue-500',
       hoverColor: 'hover:bg-blue-600',
       path: '/design',
-      roles: ['admin', 'designer']
+      editRoles: ['admin', 'designer'] // Only these roles can edit
     },
     {
       id: 'production',
@@ -87,7 +104,7 @@ const Dashboard: React.FC = () => {
       color: 'bg-orange-500',
       hoverColor: 'hover:bg-orange-600',
       path: '/production',
-      roles: ['admin', 'production']
+      editRoles: ['admin', 'production'] // Only these roles can edit
     },
     {
       id: 'installation',
@@ -97,7 +114,7 @@ const Dashboard: React.FC = () => {
       color: 'bg-purple-500',
       hoverColor: 'hover:bg-purple-600',
       path: '/installation',
-      roles: ['admin', 'installation']
+      editRoles: ['admin', 'installation'] // Only these roles can edit
     },
     {
       id: 'tracker',
@@ -107,7 +124,7 @@ const Dashboard: React.FC = () => {
       color: 'bg-red-500',
       hoverColor: 'hover:bg-red-600',
       path: '/tracker',
-      roles: ['admin', 'sales', 'designer', 'production', 'installation']
+      editRoles: ['admin', 'sales', 'designer', 'production', 'installation'] // All roles can view
     },
     {
       id: 'complaints',
@@ -117,18 +134,13 @@ const Dashboard: React.FC = () => {
       color: 'bg-gray-600',
       hoverColor: 'hover:bg-gray-700',
       path: '/complaints',
-      roles: ['admin', 'sales', 'designer', 'production', 'installation']
+      editRoles: ['admin', 'sales', 'designer', 'production', 'installation'] // All roles can submit
     }
   ];
 
-  // Check if testing mode is enabled to show all modules
-  const isTestingMode = testingMode.shouldShowAllModules();
-
-  const accessibleModules = isTestingMode
-    ? modules // Show all modules in testing mode
-    : modules.filter(module =>
-        module.roles.includes(currentUser?.role || 'sales')
-      );
+  // All modules are visible to all users - no filtering needed
+  // Only editing permissions are role-based (handled within each module)
+  const accessibleModules = modules;
 
   const handleModuleClick = (path: string) => {
     navigate(path);
@@ -142,9 +154,11 @@ const Dashboard: React.FC = () => {
           <div className="flex justify-between items-center h-16 sm:h-20">
             {/* Logo Section */}
             <div className="flex items-center space-x-3 sm:space-x-4">
-              <div className="flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 rounded-xl shadow-lg hover:scale-105 transition-transform duration-200">
-                <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-              </div>
+              <MysteelLogo
+                size="md"
+                variant="icon"
+                className="hover:scale-105 transition-transform duration-200"
+              />
               <div className="hidden sm:block">
                 <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
                   Progress Tracker
@@ -165,12 +179,24 @@ const Dashboard: React.FC = () => {
                 </div>
                 <div className="hidden sm:block">
                   <span className="text-sm font-medium text-gray-900">{currentUser?.name}</span>
-                  <span className="block text-xs text-gray-500 capitalize">{currentUser?.role} Department</span>
+                  <span className="block text-xs text-gray-500 capitalize">
+                    {currentUser?.role === 'admin' ? 'System Administrator' : `${currentUser?.role} Department`}
+                  </span>
                 </div>
                 <div className="sm:hidden">
                   <span className="text-xs font-medium text-gray-900 capitalize">{currentUser?.role}</span>
                 </div>
               </div>
+
+              {/* Sync Status Button */}
+              <button
+                onClick={() => setShowSyncDashboard(true)}
+                className="flex items-center space-x-1 sm:space-x-2 bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 sm:px-4 py-2 rounded-xl transition-all duration-200 hover:shadow-md group"
+                title="View sync status"
+              >
+                <Activity className="h-4 w-4" />
+                <span className="hidden sm:inline text-sm font-medium">Sync</span>
+              </button>
 
               {/* Admin Panel Button (only for admins) */}
               {currentUser?.role === 'admin' && (
@@ -208,7 +234,7 @@ const Dashboard: React.FC = () => {
                 Welcome back, {currentUser?.name?.split(' ')[0]}! 👋
               </h2>
               <p className="text-lg sm:text-xl text-gray-600 capitalize mb-4">
-                {currentUser?.role} Department Dashboard
+                {currentUser?.role === 'admin' ? 'System Administrator Dashboard' : `${currentUser?.role} Department Dashboard`}
               </p>
 
               {/* Network Status Indicator */}
@@ -354,6 +380,12 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Sync Status Dashboard */}
+      <SyncStatusDashboard
+        isOpen={showSyncDashboard}
+        onClose={() => setShowSyncDashboard(false)}
+      />
     </div>
   );
 };

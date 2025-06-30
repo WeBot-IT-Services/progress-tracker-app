@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import MysteelLogo from '../common/MysteelLogo';
 import type { UserRole } from '../../types';
 import {
   Eye,
   EyeOff,
-  Building2,
   Shield,
   Users,
   Wrench,
@@ -13,7 +13,8 @@ import {
   Lock,
   User,
   ArrowRight,
-  CheckCircle
+  CheckCircle,
+  Settings
 } from 'lucide-react';
 
 interface LoginFormProps {
@@ -58,10 +59,17 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode, isRegisterMode }) =
     }));
   };
 
+  // Production credentials for quick demo access
+  const PRODUCTION_CREDENTIALS = {
+    'admin@mysteel.com': 'MS2024!Admin#Secure',
+    'sales@mysteel.com': 'MS2024!Sales#Manager',
+    'design@mysteel.com': 'MS2024!Design#Engineer',
+    'production@mysteel.com': 'MS2024!Prod#Manager',
+    'installation@mysteel.com': 'MS2024!Install#Super'
+  };
+
   const quickLogin = (email: string) => {
-    // Extract role from email and set appropriate password
-    const role = email.split('@')[0];
-    const password = `${role}123`;
+    const password = PRODUCTION_CREDENTIALS[email as keyof typeof PRODUCTION_CREDENTIALS];
     setFormData(prev => ({ ...prev, email, password }));
   };
 
@@ -90,10 +98,12 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode, isRegisterMode }) =
           {/* Logo and Header */}
           <div className="text-center space-y-6">
             <div className="relative">
-              <div className="inline-flex items-center justify-center w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 rounded-3xl shadow-2xl transform hover:scale-105 transition-all duration-500 hover:rotate-3">
-                <Building2 className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
-                <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 rounded-3xl blur opacity-30 animate-pulse"></div>
-              </div>
+              <MysteelLogo
+                size="xl"
+                variant="icon"
+                className="mx-auto transform hover:scale-105 transition-all duration-500 hover:rotate-3 shadow-2xl"
+              />
+              <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 rounded-3xl blur opacity-30 animate-pulse"></div>
             </div>
 
             <div className="space-y-3">
@@ -327,7 +337,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode, isRegisterMode }) =
                 </button>
 
                 <button
-                  onClick={() => quickLogin('designer@mysteel.com')}
+                  onClick={() => quickLogin('design@mysteel.com')}
                   className="group bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10 hover:border-white/20 transition-all duration-300 text-left"
                 >
                   <div className="flex items-center space-x-3">
@@ -340,7 +350,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode, isRegisterMode }) =
                     </div>
                   </div>
                   <div className="mt-2 text-xs text-white/40 font-mono">
-                    designer@mysteel.com
+                    design@mysteel.com
                   </div>
                 </button>
 
@@ -359,6 +369,24 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode, isRegisterMode }) =
                   </div>
                   <div className="mt-2 text-xs text-white/40 font-mono">
                     production@mysteel.com
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => quickLogin('installation@mysteel.com')}
+                  className="group bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10 hover:border-white/20 transition-all duration-300 text-left"
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-cyan-500 rounded-xl flex items-center justify-center">
+                      <Settings className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h4 className="text-white font-semibold text-sm">Installation</h4>
+                      <p className="text-white/60 text-xs">Installation crew</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs text-white/40 font-mono">
+                    installation@mysteel.com
                   </div>
                 </button>
               </div>

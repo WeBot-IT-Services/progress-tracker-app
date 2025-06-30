@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginForm from './components/auth/LoginForm';
 import Dashboard from './components/dashboard/Dashboard';
 import SalesModule from './components/sales/SalesModule';
+import UpdateManager from './components/common/UpdateManager';
 import DesignModule from './components/design/DesignModule';
 import ProductionModule from './components/production/ProductionModule';
 import InstallationModule from './components/installation/InstallationModule';
@@ -138,6 +139,12 @@ function App() {
             {/* Redirect any unknown routes to home */}
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
+
+          {/* Update Manager - handles automatic updates */}
+          <UpdateManager
+            onUpdateStart={() => console.log('🔄 Update started')}
+            onUpdateComplete={() => console.log('✅ Update completed')}
+          />
         </div>
       </Router>
     </AuthProvider>

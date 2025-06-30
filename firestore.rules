@@ -42,9 +42,39 @@ service cloud.firestore {
     // Users collection - Admin can manage all users, users can read their own profile
     match /users/{userId} {
       allow read: if isAuthenticated() && (isAdmin() || isOwner(userId));
-      allow create: if isAdmin();
-      allow update: if isAdmin() || (isOwner(userId) && !('role' in request.resource.data.diff(resource.data).affectedKeys()));
+
+      // Allow user creation by admin or during registration (when creating own document)
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        (request.auth.uid == userId && validateUserCreation())
+      );
+
+      // Allow updates by admin or user updating their own profile (but not role)
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (isOwner(userId) && !('role' in request.resource.data.diff(resource.data).affectedKeys()))
+      );
+
       allow delete: if isAdmin();
+    }
+
+    // User creation validation
+    function validateUserCreation() {
+      let data = request.resource.data;
+      return (
+        // Required fields for user creation
+        data.keys().hasAll(['uid', 'name', 'email', 'role']) &&
+
+        // UID must match the document ID and authenticated user
+        data.uid == request.auth.uid &&
+
+        // Valid role values
+        data.role in ['admin', 'sales', 'designer', 'production', 'installation'] &&
+
+        // Name and email must be strings
+        data.name is string && data.name.size() > 0 &&
+        data.email is string && data.email.size() > 0
+      );
     }
     
     // Projects collection - Complex role-based access control
@@ -53,55 +83,52 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       
       // Create permissions - Only Admin and Sales can create projects
-      allow create: if isAdmin() || isSales();
+      allow create: if (isAdmin() || isSales()) && validateProjectData();
       
       // Update permissions based on project status and user role
       allow update: if isAuthenticated() && (
         // Admin can update everything
         isAdmin() ||
-        
-        // Sales can update their own projects if status is DNE
-        (isSales() && resource.data.createdBy == request.auth.uid && resource.data.status == 'DNE') ||
-        
-        // Designer can update DNE projects to Production or Completed
-        (isDesigner() && resource.data.status == 'DNE' && 
-         request.resource.data.status in ['Production', 'Completed']) ||
-        
-        // Production can update Production projects to Installation
-        (isProduction() && resource.data.status == 'Production' && 
-         request.resource.data.status == 'Installation') ||
-        
-        // Installation can update Installation projects to Completed
-        (isInstallation() && resource.data.status == 'Installation' && 
-         request.resource.data.status == 'Completed')
-      );
-      
+
+        // Sales can update their own projects if status is sales or dne
+        (isSales() && resource.data.createdBy == request.auth.uid && resource.data.status in ['sales', 'dne']) ||
+
+        // Designer can update dne projects to production, installation, or completed
+        (isDesigner() && resource.data.status == 'dne' &&
+         request.resource.data.status in ['production', 'installation', 'completed']) ||
+
+        // Production can update production projects to installation or completed
+        (isProduction() && resource.data.status == 'production' &&
+         request.resource.data.status in ['installation', 'completed']) ||
+
+        // Installation can update installation projects to completed
+        (isInstallation() && resource.data.status == 'installation' &&
+         request.resource.data.status == 'completed')
+      ) && validateProjectData();
+
       // Delete permissions - Only Admin and project creator (if Sales)
       allow delete: if isAdmin() || (isSales() && resource.data.createdBy == request.auth.uid);
-      
-      // Field-level validation
-      allow write: if validateProjectData();
     }
     
     // Project validation function
     function validateProjectData() {
       let data = request.resource.data;
       return (
-        // Required fields
-        data.keys().hasAll(['name', 'completionDate', 'status', 'createdBy']) &&
-        
-        // Valid status values
-        data.status in ['DNE', 'Production', 'Installation', 'Completed'] &&
-        
+        // Required fields - Updated to match actual project structure
+        data.keys().hasAll(['name', 'deliveryDate', 'status', 'createdBy']) &&
+
+        // Valid status values - Updated to match actual status values
+        data.status in ['sales', 'dne', 'production', 'installation', 'completed'] &&
+
         // Name must be string and not empty
         data.name is string && data.name.size() > 0 &&
-        
+
         // Amount validation (if present)
         (!('amount' in data) || (data.amount is number && data.amount >= 0)) &&
-        
+
         // CreatedBy must match authenticated user (for new documents)
         (resource == null || data.createdBy == resource.data.createdBy) &&
-        
+
         // Status transition validation
         validateStatusTransition()
       );
@@ -111,16 +138,17 @@ service cloud.firestore {
     function validateStatusTransition() {
       let oldStatus = resource != null ? resource.data.status : null;
       let newStatus = request.resource.data.status;
-      
+
       return (
-        // New documents can start with DNE
-        (resource == null && newStatus == 'DNE') ||
-        
-        // Valid transitions
-        (oldStatus == 'DNE' && newStatus in ['Production', 'Completed']) ||
-        (oldStatus == 'Production' && newStatus in ['Installation', 'Completed']) ||
-        (oldStatus == 'Installation' && newStatus == 'Completed') ||
-        
+        // New documents can start with sales
+        (resource == null && newStatus == 'sales') ||
+
+        // Valid transitions - Updated to match actual status flow
+        (oldStatus == 'sales' && newStatus in ['dne', 'completed']) ||
+        (oldStatus == 'dne' && newStatus in ['production', 'installation', 'completed']) ||
+        (oldStatus == 'production' && newStatus in ['installation', 'completed']) ||
+        (oldStatus == 'installation' && newStatus == 'completed') ||
+
         // Admin can make any transition
         isAdmin()
       );
@@ -170,8 +198,9 @@ service cloud.firestore {
       // Read permissions - anyone can read
       allow read: if isAuthenticated();
       
-      // Create permissions - Admin and Production can create milestones
-      allow create: if isAuthenticated() && (isAdmin() || isProduction()) && validateMilestoneData();
+      // Create permissions - Admin, Production, and Designer can create milestones
+      // Designer can create milestones when transitioning projects from DNE
+      allow create: if isAuthenticated() && (isAdmin() || isProduction() || isDesigner()) && validateMilestoneData();
       
       // Update permissions
       allow update: if isAuthenticated() && (
@@ -199,12 +228,13 @@ service cloud.firestore {
     function validateMilestoneData() {
       let data = request.resource.data;
       return (
-        // Required fields
-        data.keys().hasAll(['projectId', 'title', 'status', 'dueDate']) &&
-        
+        // Required fields - accept either startDate or dueDate
+        data.keys().hasAll(['projectId', 'title', 'status']) &&
+        (data.keys().hasAny(['startDate', 'dueDate'])) &&
+
         // Valid status values
         data.status in ['pending', 'in-progress', 'completed'] &&
-        
+
         // String fields validation
         data.title is string && data.title.size() > 0 &&
         data.projectId is string && data.projectId.size() > 0
@@ -221,7 +251,84 @@ service cloud.firestore {
     match /logs/{document=**} {
       allow read, write: if isAdmin();
     }
-    
+
+    // Document locks collection for collaborative editing
+    match /document_locks/{lockId} {
+      // Anyone authenticated can read locks to check status
+      allow read: if isAuthenticated();
+
+      // Anyone authenticated can create/update locks for their own documents
+      allow create, update: if isAuthenticated() && (
+        // User can create/update their own locks
+        request.resource.data.userId == request.auth.uid ||
+        // Admin can manage any lock
+        isAdmin()
+      );
+
+      // Users can delete their own locks, admin can delete any
+      allow delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // User presence collection for collaborative editing
+    match /user_presence/{presenceId} {
+      // Anyone authenticated can read presence to see who's online
+      allow read: if isAuthenticated();
+
+      // Users can create/update their own presence
+      allow create, update: if isAuthenticated() && (
+        request.resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Users can delete their own presence, admin can delete any
+      allow delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // Sync queue collection for offline functionality
+    match /sync_queue/{queueId} {
+      // Users can read their own sync queue items
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Users can create/update their own sync queue items
+      allow create, update: if isAuthenticated() && (
+        request.resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Users can delete their own sync queue items
+      allow delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // Conflicts collection for sync conflict resolution
+    match /conflicts/{conflictId} {
+      // Users can read conflicts related to their documents
+      allow read: if isAuthenticated();
+
+      // System and admin can create/update conflicts
+      allow create, update: if isAuthenticated() && (
+        request.resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Users can delete their own conflicts, admin can delete any
+      allow delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
     // Default deny rule for any other collections
     match /{document=**} {
       allow read, write: if false;

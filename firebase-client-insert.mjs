@@ -27,100 +27,171 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Test users data
+// Test users data with production credentials
 const testUsers = [
   {
     uid: 'admin-user-001',
-    email: 'admin@mysteel.com',
-    password: 'admin123',
+    email: 'admin@warehouseracking.my',
+    password: 'WR2024!Admin#Secure',
     name: 'Admin User',
     role: 'admin',
     department: 'Administration'
   },
   {
     uid: 'sales-user-001',
-    email: 'sales@mysteel.com',
-    password: 'sales123',
+    email: 'sales@warehouseracking.my',
+    password: 'WR2024!Sales#Manager',
     name: 'Sales Manager',
     role: 'sales',
     department: 'Sales'
   },
   {
     uid: 'designer-user-001',
-    email: 'designer@mysteel.com',
-    password: 'designer123',
+    email: 'design@warehouseracking.my',
+    password: 'WR2024!Design#Engineer',
     name: 'Design Engineer',
     role: 'designer',
     department: 'Design & Engineering'
   },
   {
     uid: 'production-user-001',
-    email: 'production@mysteel.com',
-    password: 'production123',
+    email: 'production@warehouseracking.my',
+    password: 'WR2024!Prod#Manager',
     name: 'Production Manager',
     role: 'production',
     department: 'Production'
   },
   {
     uid: 'installation-user-001',
-    email: 'installation@mysteel.com',
-    password: 'installation123',
+    email: 'installation@warehouseracking.my',
+    password: 'WR2024!Install#Super',
     name: 'Installation Supervisor',
     role: 'installation',
     department: 'Installation'
   }
 ];
 
-// Sample projects data
+// Sample projects data with proper status flow and data structures
 const sampleProjects = [
   {
     name: 'Mysteel Office Complex',
     description: 'Modern office building with steel framework',
     amount: 2500000,
     completionDate: '2024-12-15',
-    status: 'Production',
+    status: 'production',
     priority: 'high',
     progress: 65,
-    createdBy: 'sales-user-001'
+    createdBy: 'sales-user-001',
+    designData: {
+      status: 'completed',
+      completedAt: new Date('2024-06-15'),
+      lastModified: new Date('2024-06-15'),
+      hasFlowedFromPartial: false
+    },
+    productionData: {
+      assignedAt: new Date('2024-06-16'),
+      lastModified: new Date('2024-08-01')
+    }
   },
   {
     name: 'Industrial Warehouse Project',
     description: 'Large-scale warehouse construction',
     amount: 1800000,
     completionDate: '2024-11-30',
-    status: 'DNE',
+    status: 'dne',
     priority: 'medium',
     progress: 25,
-    createdBy: 'sales-user-001'
+    createdBy: 'sales-user-001',
+    designData: {
+      status: 'partial',
+      partialCompletedAt: new Date('2024-07-10'),
+      lastModified: new Date('2024-07-10'),
+      hasFlowedFromPartial: false
+    }
   },
   {
     name: 'Residential Tower Development',
     description: 'High-rise residential building',
     amount: 4200000,
     completionDate: '2025-03-20',
-    status: 'Installation',
+    status: 'installation',
     priority: 'high',
     progress: 85,
-    createdBy: 'sales-user-001'
+    createdBy: 'sales-user-001',
+    designData: {
+      status: 'completed',
+      completedAt: new Date('2024-05-20'),
+      lastModified: new Date('2024-05-20'),
+      hasFlowedFromPartial: false
+    },
+    productionData: {
+      assignedAt: new Date('2024-05-21'),
+      lastModified: new Date('2024-07-15')
+    },
+    installationData: {
+      milestoneProgress: {
+        'foundation': { status: 'completed', completedAt: new Date('2024-08-01') },
+        'structure': { status: 'in-progress', startedAt: new Date('2024-08-15') }
+      },
+      lastModified: new Date('2024-08-20')
+    }
   },
   {
     name: 'Shopping Mall Renovation',
     description: 'Steel structure renovation for shopping complex',
     amount: 3100000,
     completionDate: '2024-10-10',
-    status: 'Completed',
+    status: 'completed',
     priority: 'medium',
     progress: 100,
-    createdBy: 'sales-user-001'
+    createdBy: 'sales-user-001',
+    designData: {
+      status: 'completed',
+      completedAt: new Date('2024-04-10'),
+      lastModified: new Date('2024-04-10'),
+      hasFlowedFromPartial: false
+    },
+    productionData: {
+      assignedAt: new Date('2024-04-11'),
+      lastModified: new Date('2024-06-01')
+    },
+    installationData: {
+      milestoneProgress: {
+        'foundation': { status: 'completed', completedAt: new Date('2024-07-01') },
+        'structure': { status: 'completed', completedAt: new Date('2024-08-15') },
+        'finishing': { status: 'completed', completedAt: new Date('2024-09-30') }
+      },
+      lastModified: new Date('2024-10-01')
+    }
   },
   {
     name: 'School Building Construction',
     description: 'Educational facility with modern steel framework',
     amount: 1500000,
     completionDate: '2024-12-30',
-    status: 'Production',
+    status: 'production',
     priority: 'medium',
     progress: 45,
+    createdBy: 'sales-user-001',
+    designData: {
+      status: 'completed',
+      completedAt: new Date('2024-07-01'),
+      lastModified: new Date('2024-07-01'),
+      hasFlowedFromPartial: false
+    },
+    productionData: {
+      assignedAt: new Date('2024-07-02'),
+      lastModified: new Date('2024-08-15')
+    }
+  },
+  {
+    name: 'Community Center Project',
+    description: 'Multi-purpose community facility',
+    amount: 950000,
+    completionDate: '2024-11-15',
+    status: 'sales',
+    priority: 'low',
+    progress: 10,
     createdBy: 'sales-user-001'
   }
 ];
@@ -216,7 +287,7 @@ async function insertSampleProjects() {
   
   // Sign in as admin to insert projects
   try {
-    await signInWithEmailAndPassword(auth, 'admin@mysteel.com', 'admin123');
+    await signInWithEmailAndPassword(auth, 'admin@warehouseracking.my', 'WR2024!Admin#Secure');
     console.log('🔐 Signed in as admin for project creation');
   } catch (error) {
     console.error('❌ Failed to sign in as admin:', error.message);
