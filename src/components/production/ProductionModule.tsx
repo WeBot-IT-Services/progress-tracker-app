@@ -396,7 +396,7 @@ const ProductionModule: React.FC = () => {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-lg font-semibold text-gray-900">{project.name}</h3>
+                        <h3 className="text-lg font-semibold text-gray-900">{project.projectName}</h3>
                         <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
                           {project.status}
                         </span>

@@ -119,76 +119,126 @@ export interface Milestone {
 }
 
 // Check if we should use local data (when Firebase is not available)
+// Fixed: Only use local data when Firestore is truly unavailable, not as persistent fallback
 const shouldUseLocalData = () => {
-  return isDevelopmentMode && (!db || localStorage.getItem('useLocalData') === 'true');
+  // Only use local data in development mode AND when db is not initialized
+  // Remove persistent localStorage flag that was causing data override issues
+  return isDevelopmentMode && !db;
+};
+
+// Helper function to test Firestore connectivity
+const testFirestoreConnection = async (): Promise<boolean> => {
+  if (!db) return false;
+
+  try {
+    // Simple connectivity test - try to read from a collection
+    await getDocs(query(collection(db, 'projects'), orderBy('createdAt', 'desc')));
+    return true;
+  } catch (error) {
+    console.warn('Firestore connectivity test failed:', error);
+    return false;
+  }
+};
+
+// Helper function to clear any persistent local data flags
+const clearLocalDataFlags = () => {
+  localStorage.removeItem('useLocalData');
 };
 
 // Projects Service
 export const projectsService = {
   // Create project with proper status flow (starts in 'sales' status)
   async createProject(project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+    // Clear any persistent local data flags on startup
+    clearLocalDataFlags();
+
     if (shouldUseLocalData()) {
+      console.log('Using local data (development mode, Firestore not available)');
       return await localData.createProject(project);
     }
 
     try {
+      console.log('Creating project in Firestore:', project);
       const docRef = await addDoc(collection(db, 'projects'), {
         ...project,
         status: 'sales', // Always start in sales status
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
+      console.log('Project created successfully in Firestore:', docRef.id);
       return docRef.id;
     } catch (error) {
-      console.warn('Firebase createProject failed, using local data:', error);
-      localStorage.setItem('useLocalData', 'true');
+      console.error('Firebase createProject failed:', error);
+      // Only use local data as temporary fallback, don't set persistent flag
+      console.warn('Falling back to local data for this operation only');
       return await localData.createProject(project);
     }
   },
 
   // Get all projects
   async getProjects(): Promise<Project[]> {
+    // Clear any persistent local data flags
+    clearLocalDataFlags();
+
     if (shouldUseLocalData()) {
+      console.log('Using local data (development mode, Firestore not available)');
       return await localData.getProjects();
     }
 
     try {
+      console.log('Fetching projects from Firestore...');
       const querySnapshot = await getDocs(
         query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
       );
-      return querySnapshot.docs.map(doc => ({
+      const projects = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       } as Project));
+      console.log('Projects fetched successfully from Firestore:', projects.length);
+      return projects;
     } catch (error) {
-      console.warn('Firebase getProjects failed, using local data:', error);
-      localStorage.setItem('useLocalData', 'true');
+      console.error('Firebase getProjects failed:', error);
+      // Only use local data as temporary fallback, don't set persistent flag
+      console.warn('Falling back to local data for this operation only');
       return await localData.getProjects();
     }
   },
 
   // Get project by ID
   async getProject(id: string): Promise<Project | null> {
+    // Clear any persistent local data flags
+    clearLocalDataFlags();
+
     if (shouldUseLocalData()) {
+      console.log('Using local data (development mode, Firestore not available)');
       return await localData.getProject(id);
     }
 
     try {
+      console.log('Fetching project from Firestore:', id);
       const docSnap = await getDoc(doc(db, 'projects', id));
       if (docSnap.exists()) {
-        return { id: docSnap.id, ...docSnap.data() } as Project;
+        const project = { id: docSnap.id, ...docSnap.data() } as Project;
+        console.log('Project fetched successfully from Firestore:', project);
+        return project;
       }
+      console.log('Project not found in Firestore:', id);
       return null;
     } catch (error) {
-      console.warn('Firebase getProject failed, using local data:', error);
-      localStorage.setItem('useLocalData', 'true');
+      console.error('Firebase getProject failed:', error);
+      // Only use local data as temporary fallback, don't set persistent flag
+      console.warn('Falling back to local data for this operation only');
       return await localData.getProject(id);
     }
   },
 
   // Update project with automatic milestone creation for production
   async updateProject(id: string, updates: Partial<Project>): Promise<void> {
+    // Clear any persistent local data flags
+    clearLocalDataFlags();
+
     if (shouldUseLocalData()) {
+      console.log('Using local data (development mode, Firestore not available)');
       await localData.updateProject(id, updates);
       // Auto-create default milestones when project moves to production
       if (updates.status === 'production') {
@@ -198,6 +248,8 @@ export const projectsService = {
     }
 
     try {
+      console.log('Updating project in Firestore:', id, updates);
+
       // Handle nested object updates properly
       const updateData: any = {
         ...updates,
@@ -215,14 +267,16 @@ export const projectsService = {
       });
 
       await updateDoc(doc(db, 'projects', id), updateData);
+      console.log('Project updated successfully in Firestore');
 
       // Auto-create default milestones when project moves to production
       if (updates.status === 'production') {
         await this.createDefaultProductionMilestones(id);
       }
     } catch (error) {
-      console.warn('Firebase updateProject failed, using local data:', error);
-      localStorage.setItem('useLocalData', 'true');
+      console.error('Firebase updateProject failed:', error);
+      // Only use local data as temporary fallback, don't set persistent flag
+      console.warn('Falling back to local data for this operation only');
       await localData.updateProject(id, updates);
       if (updates.status === 'production') {
         await this.createDefaultProductionMilestones(id);
@@ -274,11 +328,17 @@ export const projectsService = {
 
   // Get milestones by project (moved from milestonesService for dependency)
   async getMilestonesByProject(projectId: string): Promise<Milestone[]> {
+    // Clear any persistent local data flags
+    clearLocalDataFlags();
+
     if (shouldUseLocalData()) {
+      console.log('Using local data (development mode, Firestore not available)');
       return await localData.getMilestonesByProject(projectId);
     }
 
     try {
+      console.log('Fetching milestones from Firestore for project:', projectId);
+
       // First try with orderBy, if it fails due to index, try without orderBy
       let q = query(
         collection(db, 'milestones'),
@@ -304,6 +364,8 @@ export const projectsService = {
         ...doc.data()
       } as Milestone));
 
+      console.log('Milestones fetched successfully from Firestore:', milestones.length);
+
       // Sort in memory if we couldn't use orderBy
       return milestones.sort((a, b) => {
         const aDate = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
@@ -311,8 +373,9 @@ export const projectsService = {
         return aDate.getTime() - bDate.getTime();
       });
     } catch (error) {
-      console.warn('Firebase getMilestonesByProject failed, using local data:', error);
-      localStorage.setItem('useLocalData', 'true');
+      console.error('Firebase getMilestonesByProject failed:', error);
+      // Only use local data as temporary fallback, don't set persistent flag
+      console.warn('Falling back to local data for this operation only');
       return await localData.getMilestonesByProject(projectId);
     }
   },
@@ -575,4 +638,27 @@ export const statisticsService = {
       totalComplaints: complaints.length
     };
   }
+};
+
+// Initialize service and clear any persistent local data flags
+export const initializeFirebaseService = () => {
+  console.log('🔥 Initializing Firebase Service...');
+
+  // Clear any persistent local data flags that might cause data override issues
+  clearLocalDataFlags();
+
+  // Test Firestore connectivity if in development mode
+  if (isDevelopmentMode && db) {
+    testFirestoreConnection().then(isConnected => {
+      if (isConnected) {
+        console.log('✅ Firestore connectivity confirmed - using Firestore as primary data source');
+      } else {
+        console.log('⚠️ Firestore connectivity issues detected - will use local fallback when needed');
+      }
+    }).catch(error => {
+      console.warn('⚠️ Firestore connectivity test failed:', error);
+    });
+  }
+
+  console.log('✅ Firebase Service initialized successfully');
 };

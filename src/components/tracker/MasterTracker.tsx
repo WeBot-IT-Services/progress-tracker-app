@@ -73,7 +73,7 @@ const MasterTracker: React.FC = () => {
 
   // Filter projects based on search and filters
   const filteredProjects = roleFilteredProjects.filter(project => {
-    const matchesSearch = project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    const matchesSearch = project.projectName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          project.description?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
@@ -503,7 +503,7 @@ const MasterTracker: React.FC = () => {
                         <div key={project.id} className="border border-gray-200 rounded-lg p-4">
                           <div className="flex items-center justify-between mb-4">
                             <div>
-                              <h4 className="font-medium text-gray-900">{project.name}</h4>
+                              <h4 className="font-medium text-gray-900">{project.projectName}</h4>
                               <p className="text-sm text-gray-600">
                                 Started: {deliveryInfo.projectStart} • Expected Completion: {deliveryInfo.expectedCompletion}
                                 {project.isOverdue && <span className="text-red-600 ml-2">• Overdue</span>}
@@ -639,7 +639,7 @@ const MasterTracker: React.FC = () => {
                       <div className="space-y-2">
                         {roleFilteredProjects.slice(0, 5).map((project) => (
                           <div key={project.id} className="flex items-center justify-between text-sm">
-                            <span className="text-gray-600">{project.name}</span>
+                            <span className="text-gray-600">{project.projectName}</span>
                             <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(project.status)}`}>
                               {getStatusDisplayName(project.status)}
                             </span>
@@ -688,7 +688,7 @@ const MasterTracker: React.FC = () => {
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
                                 <div className="flex items-center space-x-3 mb-2">
-                                  <h4 className="text-lg font-semibold text-gray-900">{project.name}</h4>
+                                  <h4 className="text-lg font-semibold text-gray-900">{project.projectName}</h4>
                                   <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
                                     {getStatusDisplayName(project.status)}
                                   </span>
@@ -771,7 +771,7 @@ const MasterTracker: React.FC = () => {
                   filteredProjects.map((project) => (
                     <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300">
                       <div className="flex items-start justify-between mb-4">
-                        <h4 className="text-lg font-semibold text-gray-900">{project.name}</h4>
+                        <h4 className="text-lg font-semibold text-gray-900">{project.projectName}</h4>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
                           {getStatusDisplayName(project.status)}
                         </span>
@@ -885,7 +885,7 @@ const MasterTracker: React.FC = () => {
                           <tr key={project.id} className="hover:bg-gray-50">
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div>
-                                <div className="text-sm font-medium text-gray-900">{project.name}</div>
+                                <div className="text-sm font-medium text-gray-900">{project.projectName}</div>
                                 {project.description && (
                                   <div className="text-sm text-gray-500 truncate max-w-xs">
                                     {project.description}

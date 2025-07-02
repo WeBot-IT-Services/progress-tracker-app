@@ -75,7 +75,6 @@ const InstallationModule: React.FC = () => {
         // History: Completed projects
         const historyProjectsData = allProjects.filter(project => project.status === 'completed');
 
-        console.log(`📊 Installation Module - WIP Projects: ${wipProjectsData.length}, History: ${historyProjectsData.length}`);
         setWipProjects(wipProjectsData);
         setHistoryProjects(historyProjectsData);
       } catch (error) {
@@ -89,13 +88,10 @@ const InstallationModule: React.FC = () => {
 
     // Set up real-time listener for project updates
     const unsubscribe = projectsService.onProjectsChange ? projectsService.onProjectsChange((projects) => {
-      console.log(`🔄 Installation Module - Real-time update received: ${projects.length} total projects`);
-
       // Filter for installation projects
       const wipProjectsData = projects.filter(project => project.status === 'installation');
       const historyProjectsData = projects.filter(project => project.status === 'completed');
 
-      console.log(`📊 Installation Module - Updated WIP: ${wipProjectsData.length}, History: ${historyProjectsData.length}`);
       setWipProjects(wipProjectsData);
       setHistoryProjects(historyProjectsData);
       setLoading(false);

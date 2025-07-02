@@ -65,7 +65,9 @@ const SalesModule: React.FC = () => {
     const loadProjects = async () => {
       try {
         setLoading(true);
+        console.log('Loading projects...');
         const projectsData = await projectsService.getProjects();
+        console.log('Projects loaded:', projectsData.length, projectsData);
         // Filter to show projects that sales team should see (all projects for tracking)
         setProjects(projectsData);
       } catch (error) {
@@ -80,38 +82,55 @@ const SalesModule: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser) return;
+    if (!currentUser) {
+      alert('You must be logged in to create a project');
+      return;
+    }
+
+    // Validate required fields
+    if (!formData.projectName.trim()) {
+      alert('Project name is required');
+      return;
+    }
+    if (!formData.deliveryDate) {
+      alert('Delivery date is required');
+      return;
+    }
 
     try {
       setSubmitting(true);
+      console.log('Current user:', currentUser);
 
       const projectData = {
-        name: formData.projectName,
-        description: formData.description,
-        amount: formData.amount ? parseFloat(formData.amount) : undefined,
+        projectName: formData.projectName.trim(),
+        description: formData.description?.trim() || '',
+        amount: formData.amount ? parseFloat(formData.amount) : 0,
         deliveryDate: formData.deliveryDate,
         // Projects now start in 'sales' status, not 'DNE'
         status: 'sales' as const,
-        createdBy: currentUser.uid,
-        priority: 'medium' as const,
-        progress: 0
+        createdBy: currentUser.uid
       };
 
+      console.log('Creating project with data:', projectData);
+
       const projectId = await projectsService.createProject(projectData);
+      console.log('Project created successfully with ID:', projectId);
 
       // Automatically transition to Design & Engineering
       await workflowService.transitionSalesToDesign(projectId, new Date());
+      console.log('Project transitioned to Design & Engineering');
 
       // Reload projects
       const updatedProjects = await projectsService.getProjects();
       setProjects(updatedProjects);
+      console.log('Projects reloaded, total count:', updatedProjects.length);
 
       setShowSuccess(true);
-      setFormData({ projectName: '', description: '', amount: '', completionDate: '' });
+      setFormData({ projectName: '', description: '', amount: '', deliveryDate: '' });
       setTimeout(() => setShowSuccess(false), 3000);
     } catch (error) {
       console.error('Error creating project:', error);
-      alert('Failed to create project. Please try again.');
+      alert(`Failed to create project: ${(error as any)?.message || 'Unknown error'}. Please try again.`);
     } finally {
       setSubmitting(false);
     }
@@ -145,10 +164,10 @@ const SalesModule: React.FC = () => {
 
       setEditingProject(project);
       setFormData({
-        projectName: project.name,
+        projectName: project.projectName || '',
         description: project.description || '',
         amount: project.amount?.toString() || '',
-        deliveryDate: project.deliveryDate
+        deliveryDate: project.deliveryDate || ''
       });
       setShowEditForm(true);
     } else {
@@ -259,13 +278,13 @@ const SalesModule: React.FC = () => {
         iconColor="text-white"
         iconBgColor="bg-gradient-to-r from-green-500 to-green-600"
       >
-        {/* <button
+        <button
           onClick={() => setActiveTab('submit')}
           className="flex items-center bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-4 py-2 rounded-xl transition-all duration-200 hover:shadow-lg hover:scale-105"
         >
           <Plus className="w-4 h-4 mr-2" />
           New Project
-        </button> */}
+        </button>
       </ModuleHeader>
 
       {/* Content */}
@@ -415,7 +434,7 @@ const SalesModule: React.FC = () => {
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="text-lg font-semibold text-gray-900">
-                          {project.name}
+                          {project.projectName}
                         </h3>
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
                           {project.status}

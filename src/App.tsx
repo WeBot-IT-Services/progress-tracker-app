@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginForm from './components/auth/LoginForm';
@@ -12,6 +12,9 @@ import MasterTracker from './components/tracker/MasterTracker';
 import ComplaintsModule from './components/complaints/ComplaintsModule';
 import AdminModule from './components/admin/AdminModule';
 import TailwindTest from './components/test/TailwindTest';
+import DataIntegrityTest from './components/test/DataIntegrityTest';
+import DataViewer from './components/test/DataViewer';
+import { initializeFirebaseService } from './services/firebaseService';
 
 // Loading component
 const LoadingSpinner: React.FC = () => (
@@ -55,6 +58,11 @@ const LoginPage: React.FC = () => {
 };
 
 function App() {
+  // Initialize Firebase service on app startup
+  useEffect(() => {
+    initializeFirebaseService();
+  }, []);
+
   return (
     <AuthProvider>
       <Router>
@@ -135,6 +143,14 @@ function App() {
             <Route
               path="/test-tailwind"
               element={<TailwindTest />}
+            />
+            <Route
+              path="/test-data-integrity"
+              element={<DataIntegrityTest />}
+            />
+            <Route
+              path="/view-data"
+              element={<DataViewer />}
             />
             {/* Redirect any unknown routes to home */}
             <Route path="*" element={<Navigate to="/" />} />

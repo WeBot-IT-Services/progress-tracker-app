@@ -47,6 +47,8 @@ const AdminModule: React.FC = () => {
     loadData();
   }, []);
 
+
+
   const handleSeedData = async () => {
     if (!confirm('This will add sample data to your Firebase database. Continue?')) return;
 
@@ -167,19 +169,19 @@ const AdminModule: React.FC = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Tab Navigation */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-2 shadow-lg border border-white/50 mb-8">
-          <div className="flex space-x-2">
-            <button
-              onClick={() => setActiveTab('users')}
-              className={`flex items-center px-4 py-2 rounded-xl transition-all duration-200 ${
-                activeTab === 'users'
-                  ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
-              }`}
-            >
-              <Users className="w-4 h-4 mr-2" />
-              User Management
-            </button>
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-2 shadow-lg border border-white/50 mb-8">
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setActiveTab('users')}
+                  className={`flex items-center px-4 py-2 rounded-xl transition-all duration-200 ${
+                    activeTab === 'users'
+                      ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+                  }`}
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  User Management
+                </button>
             <button
               onClick={() => setActiveTab('analytics')}
               className={`flex items-center px-4 py-2 rounded-xl transition-all duration-200 ${
@@ -389,8 +391,6 @@ const AdminModule: React.FC = () => {
             </div>
           </div>
         )}
-        
-       
       </div>
     </div>
   );

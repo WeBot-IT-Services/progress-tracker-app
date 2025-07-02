@@ -1,109 +1,132 @@
-# Progress Tracker App - Mysteel Construction
+# Progress Tracker App
 
-A comprehensive progress tracking web application for Mysteel Construction Sdn Bhd, built with React.js, TypeScript, Tailwind CSS, and Firebase.
+A comprehensive project management system for Mysteel Construction with role-based access control and real-time collaboration features.
 
-## 🚀 Quick Start
+## 🚀 Features
 
-1. **Install dependencies**
+### Core Modules
+- **Sales Module** - Project creation and sales management
+- **Design & Engineering** - Design workflow with partial/completed status
+- **Production** - Manufacturing progress with milestone tracking
+- **Installation** - Installation progress with photo uploads
+- **Master Tracker** - Overview of all projects across modules
+- **Complaints** - Issue tracking and resolution
+
+### Key Capabilities
+- **Role-Based Access Control** - Admin, Sales, Designer, Production, Installation roles
+- **Real-time Collaboration** - Document locking and presence indicators
+- **Offline-First Architecture** - Works without internet connection
+- **Progressive Web App** - Install on mobile and desktop
+- **Automatic Workflow** - Projects flow between modules automatically
+
+## 🛠️ Technology Stack
+
+- **Frontend**: React 19 + TypeScript + Tailwind CSS
+- **Backend**: Firebase Firestore + Authentication
+- **Build Tool**: Vite
+- **Offline Storage**: IndexedDB
+- **Real-time**: Firebase Realtime Listeners
+
+## 📦 Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/WeBot-IT-Services/progress-tracker-app.git
+   cd progress-tracker-app
+   ```
+
+2. **Install dependencies**
    ```bash
    npm install
    ```
 
-2. **Start development server**
+3. **Start development server**
    ```bash
    npm run dev
    ```
 
-3. **Open in browser**
-   - Navigate to `http://localhost:5174` (or the port shown in terminal)
+4. **Open in browser**
+   ```
+   http://localhost:5173
+   ```
 
-## 🧪 Testing the Application
+## 🔐 Demo Credentials
 
-### Test Accounts (Password: `password123`)
-- **Admin**: `admin@mysteel.com` - Full access to all modules
-- **Sales**: `sales@mysteel.com` - Sales module access
-- **Designer**: `designer@mysteel.com` - Design module access
-- **Production**: `production@mysteel.com` - Production module access
-- **Installation**: `installation@mysteel.com` - Installation module access
+Use these credentials to test different roles:
 
-### Features to Test
+- **Admin**: admin@mysteer.com / WR2024
+- **Sales**: sales@mysteer.com / WR2024  
+- **Designer**: design@mysteer.com / WR2024
+- **Production**: production@mysteer.com / WR2024
+- **Installation**: installation@mysteer.com / WR2024
 
-1. **🔐 Authentication**
-   - Login with any test account
-   - Try registration (creates new mock user)
-   - Logout functionality
+## 🏗️ Project Structure
 
-2. **🏠 Dashboard**
-   - Role-based module visibility
-   - Module navigation cards
-   - User profile display
+```
+src/
+├── components/          # React components
+│   ├── admin/          # Admin panel
+│   ├── sales/          # Sales module
+│   ├── design/         # Design & Engineering
+│   ├── production/     # Production module
+│   ├── installation/   # Installation module
+│   ├── tracker/        # Master Tracker
+│   ├── complaints/     # Complaints module
+│   └── common/         # Shared components
+├── services/           # Business logic
+│   ├── firebaseService.ts
+│   ├── workflowService.ts
+│   ├── collaborativeService.ts
+│   └── offlineFirstService.ts
+├── contexts/           # React contexts
+├── hooks/              # Custom hooks
+├── types/              # TypeScript types
+└── utils/              # Utility functions
+```
 
-3. **📊 Sales Module**
-   - Submit new projects
-   - View project history
-   - Tab navigation
+## 🔄 Workflow
 
-4. **🎨 Design Module**
-   - Mark projects as partial/completed
-   - WIP and History tabs
-   - Status management
+1. **Sales** creates projects
+2. **Design** receives projects automatically
+3. **Design** can mark as partial (stays in WIP) or completed (moves to History)
+4. **Completed designs** flow to Production or Installation
+5. **Production** manages milestones with image uploads
+6. **Installation** tracks progress with photo documentation
+7. **Master Tracker** provides overview across all modules
 
-5. **🏭 Other Modules**
-   - Production, Installation, Tracker, Complaints
-   - Placeholder components ready for development
+## 🚀 Deployment
 
-## 🛠 Tech Stack
+1. **Build for production**
+   ```bash
+   npm run build
+   ```
 
-- **Frontend**: React 18 + TypeScript + Vite
-- **Styling**: Tailwind CSS + Custom CSS
-- **Authentication**: Mock service (Firebase-ready)
-- **Icons**: Lucide React
-- **Routing**: React Router DOM
+2. **Deploy to Firebase**
+   ```bash
+   firebase deploy
+   ```
 
-## 📱 Features
+## 📱 PWA Features
 
-- ✅ **Responsive Design** - Works on mobile and desktop
-- ✅ **Role-based Access Control** - Different users see different modules
-- ✅ **Mock Authentication** - No Firebase setup required for testing
-- ✅ **Beautiful UI** - Matches design mockups
-- ✅ **Type Safety** - Full TypeScript implementation
-- ✅ **PWA Ready** - Progressive Web App capabilities
+- Install on mobile devices
+- Offline functionality
+- Background sync
+- Push notifications (future)
 
 ## 🔧 Development
 
-- **Hot Reload**: Changes update automatically
-- **TypeScript**: Full type checking
-- **ESLint**: Code quality enforcement
-- **Vite**: Fast build tool
+- **Linting**: `npm run lint`
+- **Type checking**: Built into Vite
+- **Hot reload**: Automatic in dev mode
 
-## 📞 Support
+## 📄 License
 
-- **Developer**: WeBot-IT-Services
-- **Email**: jinzhang@webotitservices.org
-- **Project Cost**: RM4,500
+Private project for Mysteel Construction.
+
+## 🆘 Support
+
+For technical support, contact: jinzhang@webotitservices.org
 
 ---
 
-© 2025 Mysteel Construction Sdn Bhd. All rights reserved.
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
-```
+**Note**: All test files, documentation, and setup scripts have been moved to the `archive/` folder to keep the project clean.

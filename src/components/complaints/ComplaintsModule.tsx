@@ -397,7 +397,7 @@ const ComplaintsModule: React.FC = () => {
                     <option value="">Select a project</option>
                     {projects.map((project) => (
                       <option key={project.id} value={project.id}>
-                        {project.name}
+                        {project.projectName}
                       </option>
                     ))}
                   </select>
@@ -596,7 +596,7 @@ const ComplaintsModule: React.FC = () => {
                     <option value="">Select a project</option>
                     {projects.map((project) => (
                       <option key={project.id} value={project.id}>
-                        {project.name}
+                        {project.projectName}
                       </option>
                     ))}
                   </select>

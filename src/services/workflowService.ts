@@ -80,15 +80,8 @@ export const workflowService = {
   // Design → Installation (When Design status is "Partial" or "Completed")
   async transitionDesignToInstallation(projectId: string, deliveryDate?: Date): Promise<void> {
     try {
-      console.log(`🔄 Starting Design → Installation transition for project ${projectId}`);
       const project = await projectsService.getProject(projectId);
-      if (!project) {
-        console.error(`❌ Project ${projectId} not found`);
-        throw new Error('Project not found');
-      }
-
-      console.log(`📋 Current project status: ${project.status}`);
-      console.log(`📋 Current design data:`, project.designData);
+      if (!project) throw new Error('Project not found');
 
       // Preserve the current design status and data - don't override what was just set
       const currentDesignData = project.designData || {};
@@ -108,11 +101,11 @@ export const workflowService = {
         }
       };
 
-      console.log(`📝 Updating project with:`, updates);
       await projectsService.updateProject(projectId, updates);
-      console.log(`✅ Project ${projectId} successfully transitioned from Design to Installation (design status: ${currentDesignData.status})`);
+
+      console.log(`Project ${projectId} automatically transitioned from Design to Installation (design status: ${currentDesignData.status})`);
     } catch (error) {
-      console.error('❌ Error transitioning Design to Installation:', error);
+      console.error('Error transitioning Design to Installation:', error);
       throw error;
     }
   },

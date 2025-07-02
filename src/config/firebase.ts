@@ -64,9 +64,63 @@ if (isDevelopmentMode) {
       window.location.reload();
     };
 
-    console.log('🧪 Testing functions available:');
+    // Add data integrity checker function
+    (window as any).checkDataIntegrity = async () => {
+      console.log('🔍 Starting data integrity check...');
+      try {
+        const { DataIntegrityChecker } = await import('../utils/dataIntegrityChecker');
+        const checker = new DataIntegrityChecker();
+        const results = await checker.performFullIntegrityCheck();
+
+        console.log('\n🎯 DATA INTEGRITY CHECK COMPLETED');
+        console.log('Results available in browser console and returned object');
+        return results;
+      } catch (error) {
+        console.error('❌ Data integrity check failed:', error);
+        return { error: error.message };
+      }
+    };
+
+    // Add data verification function (READ-ONLY)
+    (window as any).verifyExistingData = async () => {
+      try {
+        const { verifyExistingData } = await import('../utils/firestoreDataViewer');
+        return await verifyExistingData();
+      } catch (error) {
+        console.error('❌ Data verification failed:', error);
+        return { error: error.message };
+      }
+    };
+
+    // Add quick data check function
+    (window as any).quickDataCheck = async () => {
+      try {
+        const { quickDataCheck } = await import('../utils/quickDataCheck');
+        return await quickDataCheck();
+      } catch (error) {
+        console.error('❌ Quick data check failed:', error);
+        return { error: error.message };
+      }
+    };
+
+    // Add data seeding functions
+    (window as any).seedTestData = async () => {
+      try {
+        const { seedTestData } = await import('../utils/dataSeed');
+        return await seedTestData();
+      } catch (error) {
+        console.error('❌ Data seeding failed:', error);
+        return { error: error.message };
+      }
+    };
+
+    console.log('🧪 Development functions available:');
     console.log('  - enableTestingMode() - Bypass authentication');
     console.log('  - disableTestingMode() - Re-enable authentication');
+    console.log('  - verifyExistingData() - View existing Firestore data (READ-ONLY)');
+    console.log('  - quickDataCheck() - Quick overview of Firestore data');
+    console.log('  - seedTestData() - Create sample data for testing');
+    console.log('  - checkDataIntegrity() - Run comprehensive data audit and repair');
   }
 }
 

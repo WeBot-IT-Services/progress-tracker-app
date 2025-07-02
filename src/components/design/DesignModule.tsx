@@ -178,24 +178,21 @@ const DesignModule: React.FC = () => {
         await projectsService.updateProject(projectId, updates);
         console.log(`Project ${projectId} marked as partial - staying in DNE/WIP with delivery date:`, deliveryDate);
 
-        // Create production milestones if flowing to production
+        // Flow to target module even for partial completion
         if (targetModule === 'production') {
-          try {
-            await projectsService.createDefaultProductionMilestones(projectId);
-            console.log(`Default production milestones created for project ${projectId}`);
-          } catch (error) {
-            console.error('Error creating default production milestones:', error);
-          }
+          await workflowService.transitionDesignToProduction(projectId, deliveryDate);
+        } else {
+          await workflowService.transitionDesignToInstallation(projectId, deliveryDate);
         }
 
-        alert(`Design marked as partial completed! Default ${targetModule} milestones created. Project remains in WIP for further work.`);
+        alert(`Design marked as partial completed! Project automatically flowed to ${targetModule} and remains in WIP for further work.`);
+        console.log(`✅ DNE Workflow: Project ${projectId} marked as partial and flowed to ${targetModule}`);
 
         // Reload projects to reflect changes
         await loadProjects();
       } else if (designStatus === 'completed') {
         // Completed - flow to production or installation AND move to history
         const targetModule = flowTo || 'production'; // Default to production if not specified
-        console.log(`🎯 Design completion flow: ${projectId} → ${targetModule}`);
 
         // First update design data to mark as completed
         const updates: any = {
@@ -207,24 +204,20 @@ const DesignModule: React.FC = () => {
             lastModified: new Date()
           }
         };
-        console.log(`📝 Updating design data:`, updates);
         await projectsService.updateProject(projectId, updates);
-        console.log(`✅ Project ${projectId} marked as completed - moving to History with delivery date:`, deliveryDate);
+        console.log(`Project ${projectId} marked as completed - moving to History with delivery date:`, deliveryDate);
 
         // Then transition to target module
-        console.log(`🔄 Starting transition to ${targetModule}...`);
         if (targetModule === 'production') {
           await workflowService.transitionDesignToProduction(projectId, deliveryDate);
         } else {
-          console.log(`🔧 Calling transitionDesignToInstallation for project ${projectId}`);
           await workflowService.transitionDesignToInstallation(projectId, deliveryDate);
         }
-        console.log(`✅ Transition to ${targetModule} completed`);
 
         alert(`Design completed and automatically moved to ${targetModule}! Project moved to design history.`);
+        console.log(`✅ DNE Workflow: Project ${projectId} completed and flowed to ${targetModule}`);
 
         // Reload projects to reflect changes
-        console.log(`🔄 Reloading projects...`);
         await loadProjects();
       } else if (designStatus === 'pending') {
         // Reset to pending (rollback from partial or completed)
@@ -258,6 +251,7 @@ const DesignModule: React.FC = () => {
   const loadProjects = async () => {
     try {
       const allProjects = await projectsService.getProjects();
+
 
       // Validate and clean project data (same logic as useEffect)
       const validProjects = allProjects.filter(project => {

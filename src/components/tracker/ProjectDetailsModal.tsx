@@ -121,7 +121,7 @@ const ProjectDetailsModal: React.FC<ProjectDetailsModalProps> = ({ project, onCl
       <div className="bg-gradient-to-r from-red-50 to-red-100 rounded-xl p-6">
         <div className="flex items-start justify-between">
           <div className="flex-1">
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">{project.name}</h3>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">{project.projectName}</h3>
             <p className="text-gray-600 mb-4">{project.description || 'No description provided'}</p>
             
             <div className="flex items-center space-x-4">
@@ -726,7 +726,7 @@ const ProjectDetailsModal: React.FC<ProjectDetailsModalProps> = ({ project, onCl
         {/* Header */}
         <div className="flex items-start justify-between p-6 border-b border-gray-200">
           <div className="flex-1">
-            <h2 className="text-2xl font-semibold text-gray-900">{project.name}</h2>
+            <h2 className="text-2xl font-semibold text-gray-900">{project.projectName}</h2>
             <div className="flex items-center space-x-3 mt-2">
               <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(project.status)}`}>
                 {project.status.charAt(0).toUpperCase() + project.status.slice(1)}
