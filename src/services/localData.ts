@@ -1,186 +1,146 @@
-// Local Data Service for Development Mode
-// Provides fallback data when Firebase is not available
-// Production-ready: All arrays are empty - data comes from Firebase or user creation
+// Local Data Service - Mock data for development and fallback
+import type { Project, User, Complaint, Milestone } from '../types';
 
-import type { Project, Complaint, Milestone } from './firebaseService';
-
-// Production-ready empty data arrays
-const SAMPLE_PROJECTS: Project[] = [];
-const SAMPLE_MILESTONES: Milestone[] = [];
-const SAMPLE_COMPLAINTS: Complaint[] = [];
-
-export class LocalDataService {
-  private static instance: LocalDataService;
-  private projects: Project[] = [...SAMPLE_PROJECTS];
-  private milestones: Milestone[] = [...SAMPLE_MILESTONES];
-  private complaints: Complaint[] = [...SAMPLE_COMPLAINTS];
-
-  private constructor() {}
-
-  static getInstance(): LocalDataService {
-    if (!LocalDataService.instance) {
-      LocalDataService.instance = new LocalDataService();
-    }
-    return LocalDataService.instance;
+// Mock project data
+const mockProjects: Project[] = [
+  {
+    id: 'proj_1',
+    projectName: 'Demo Project 1',
+    amount: 150000,
+    estimatedCompletionDate: new Date('2024-12-31'),
+    status: 'production',
+    createdBy: 'demo_user',
+    createdAt: new Date('2024-01-15'),
+    updatedAt: new Date()
+  },
+  {
+    id: 'proj_2',
+    projectName: 'Demo Project 2', 
+    amount: 275000,
+    estimatedCompletionDate: new Date('2024-11-30'),
+    status: 'installation',
+    createdBy: 'demo_user',
+    createdAt: new Date('2024-02-01'),
+    updatedAt: new Date()
   }
+];
 
+// Mock user data
+const mockUsers: User[] = [
+  {
+    uid: 'demo_admin',
+    email: 'admin@mysteel.com',
+    name: 'Demo Admin',
+    role: 'admin',
+    employeeId: 'A0001',
+    department: 'admin',
+    createdAt: new Date('2024-01-01'),
+    updatedAt: new Date(),
+    passwordSet: true,
+    isTemporary: false
+  },
+  {
+    uid: 'demo_sales',
+    email: 'sales@mysteel.com',
+    name: 'Demo Sales',
+    role: 'sales',
+    employeeId: 'S0001',
+    department: 'sales',
+    createdAt: new Date('2024-01-01'),
+    updatedAt: new Date(),
+    passwordSet: true,
+    isTemporary: false
+  }
+];
+
+// Mock complaints data
+const mockComplaints: Complaint[] = [
+  {
+    id: 'comp_1',
+    projectId: 'proj_1',
+    title: 'Demo Complaint',
+    description: 'This is a demo complaint for testing purposes.',
+    priority: 'medium',
+    status: 'open',
+    submittedBy: 'demo_user',
+    submittedAt: new Date('2024-01-20'),
+    assignedTo: 'demo_admin',
+    attachments: []
+  }
+];
+
+export const localData = {
   // Projects
-  async getProjects(): Promise<Project[]> {
-    return new Promise((resolve) => {
-      setTimeout(() => resolve([...this.projects]), 200);
-    });
-  }
+  getProjects: () => Promise.resolve([...mockProjects]),
+  getProject: (id: string) => Promise.resolve(mockProjects.find(p => p.id === id) || null),
+  createProject: (project: Omit<Project, 'id'>) => {
+    const newProject = { ...project, id: `proj_${Date.now()}` };
+    mockProjects.push(newProject);
+    return Promise.resolve(newProject);
+  },
+  updateProject: (id: string, updates: Partial<Project>) => {
+    const index = mockProjects.findIndex(p => p.id === id);
+    if (index >= 0) {
+      mockProjects[index] = { ...mockProjects[index], ...updates, updatedAt: new Date() };
+      return Promise.resolve(mockProjects[index]);
+    }
+    return Promise.reject(new Error('Project not found'));
+  },
+  deleteProject: (id: string) => {
+    const index = mockProjects.findIndex(p => p.id === id);
+    if (index >= 0) {
+      mockProjects.splice(index, 1);
+      return Promise.resolve();
+    }
+    return Promise.reject(new Error('Project not found'));
+  },
 
-  async getProject(id: string): Promise<Project | null> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const project = this.projects.find(p => p.id === id);
-        resolve(project || null);
-      }, 150);
-    });
-  }
-
-  async createProject(project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const id = `local-project-${Date.now()}`;
-        const newProject: Project = {
-          ...project,
-          id,
-          status: 'sales',
-          createdAt: { toDate: () => new Date() } as any,
-          updatedAt: { toDate: () => new Date() } as any
-        };
-        this.projects.unshift(newProject);
-        resolve(id);
-      }, 300);
-    });
-  }
-
-  async updateProject(id: string, updates: Partial<Project>): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const index = this.projects.findIndex(p => p.id === id);
-        if (index !== -1) {
-          this.projects[index] = {
-            ...this.projects[index],
-            ...updates,
-            updatedAt: { toDate: () => new Date() } as any
-          };
-        }
-        resolve();
-      }, 200);
-    });
-  }
-
-  async deleteProject(id: string): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        this.projects = this.projects.filter(p => p.id !== id);
-        resolve();
-      }, 200);
-    });
-  }
-
-  // Milestones
-  async getMilestonesByProject(projectId: string): Promise<Milestone[]> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const projectMilestones = this.milestones.filter(m => m.projectId === projectId);
-        resolve([...projectMilestones]);
-      }, 150);
-    });
-  }
-
-  async createMilestone(milestone: Omit<Milestone, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const id = `local-milestone-${Date.now()}`;
-        const newMilestone: Milestone = {
-          ...milestone,
-          id,
-          createdAt: { toDate: () => new Date() } as any,
-          updatedAt: { toDate: () => new Date() } as any
-        };
-        this.milestones.push(newMilestone);
-        resolve(id);
-      }, 250);
-    });
-  }
-
-  async updateMilestone(id: string, updates: Partial<Milestone>): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const index = this.milestones.findIndex(m => m.id === id);
-        if (index !== -1) {
-          this.milestones[index] = {
-            ...this.milestones[index],
-            ...updates,
-            updatedAt: { toDate: () => new Date() } as any
-          };
-        }
-        resolve();
-      }, 200);
-    });
-  }
-
-  async deleteMilestone(id: string): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        this.milestones = this.milestones.filter(m => m.id !== id);
-        resolve();
-      }, 200);
-    });
-  }
+  // Users
+  getUsers: () => Promise.resolve([...mockUsers]),
+  getUser: (id: string) => Promise.resolve(mockUsers.find(u => u.uid === id) || null),
+  getUserByEmail: (email: string) => Promise.resolve(mockUsers.find(u => u.email === email) || null),
+  getUserByEmployeeId: (employeeId: string) => Promise.resolve(mockUsers.find(u => u.employeeId === employeeId) || null),
+  createUser: (user: Omit<User, 'uid'>) => {
+    const newUser = { ...user, uid: `user_${Date.now()}` };
+    mockUsers.push(newUser);
+    return Promise.resolve(newUser);
+  },
+  updateUser: (id: string, updates: Partial<User>) => {
+    const index = mockUsers.findIndex(u => u.uid === id);
+    if (index >= 0) {
+      mockUsers[index] = { ...mockUsers[index], ...updates, updatedAt: new Date() };
+      return Promise.resolve(mockUsers[index]);
+    }
+    return Promise.reject(new Error('User not found'));
+  },
 
   // Complaints
-  async getComplaints(): Promise<Complaint[]> {
-    return new Promise((resolve) => {
-      setTimeout(() => resolve([...this.complaints]), 200);
-    });
-  }
+  getComplaints: () => Promise.resolve([...mockComplaints]),
+  getComplaint: (id: string) => Promise.resolve(mockComplaints.find(c => c.id === id) || null),
+  getComplaintsByProject: (projectId: string) => Promise.resolve(mockComplaints.filter(c => c.projectId === projectId)),
+  createComplaint: (complaint: Omit<Complaint, 'id'>) => {
+    const newComplaint = { ...complaint, id: `comp_${Date.now()}` };
+    mockComplaints.push(newComplaint);
+    return Promise.resolve(newComplaint);
+  },
+  updateComplaint: (id: string, updates: Partial<Complaint>) => {
+    const index = mockComplaints.findIndex(c => c.id === id);
+    if (index >= 0) {
+      mockComplaints[index] = { ...mockComplaints[index], ...updates };
+      return Promise.resolve(mockComplaints[index]);
+    }
+    return Promise.reject(new Error('Complaint not found'));
+  },
 
-  async createComplaint(complaint: Omit<Complaint, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const id = `local-complaint-${Date.now()}`;
-        const newComplaint: Complaint = {
-          ...complaint,
-          id,
-          createdAt: { toDate: () => new Date() } as any,
-          updatedAt: { toDate: () => new Date() } as any
-        };
-        this.complaints.unshift(newComplaint);
-        resolve(id);
-      }, 300);
-    });
-  }
+  // Statistics
+  getStatistics: () => Promise.resolve({
+    totalProjects: mockProjects.length,
+    activeProjects: mockProjects.filter(p => p.status === 'production' || p.status === 'installation').length,
+    completedProjects: mockProjects.filter(p => p.status === 'completed').length,
+    totalUsers: mockUsers.length,
+    totalComplaints: mockComplaints.length,
+    openComplaints: mockComplaints.filter(c => c.status === 'open').length
+  })
+};
 
-  async updateComplaint(id: string, updates: Partial<Complaint>): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const index = this.complaints.findIndex(c => c.id === id);
-        if (index !== -1) {
-          this.complaints[index] = {
-            ...this.complaints[index],
-            ...updates,
-            updatedAt: { toDate: () => new Date() } as any
-          };
-        }
-        resolve();
-      }, 200);
-    });
-  }
-
-  async deleteComplaint(id: string): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        this.complaints = this.complaints.filter(c => c.id !== id);
-        resolve();
-      }, 200);
-    });
-  }
-}
-
-// Export singleton instance
-export const localData = LocalDataService.getInstance();
+export default localData;

@@ -9,6 +9,7 @@ const DB_VERSION = 2; // Incremented to trigger upgrade
 const STORES = {
   AUTH: 'auth',
   PROJECTS: 'projects',
+  MILESTONES: 'milestones',
   USERS: 'users',
   COMPLAINTS: 'complaints',
   SYNC_QUEUE: 'syncQueue',
@@ -38,6 +39,13 @@ export const initDB = (): Promise<IDBDatabase> => {
         const projectStore = db.createObjectStore(STORES.PROJECTS, { keyPath: 'id' });
         projectStore.createIndex('status', 'status', { unique: false });
         projectStore.createIndex('createdBy', 'createdBy', { unique: false });
+      }
+
+      // Milestones store
+      if (!db.objectStoreNames.contains(STORES.MILESTONES)) {
+        const milestoneStore = db.createObjectStore(STORES.MILESTONES, { keyPath: 'id' });
+        milestoneStore.createIndex('projectId', 'projectId', { unique: false });
+        milestoneStore.createIndex('status', 'status', { unique: false });
       }
 
       // Users store
@@ -198,6 +206,29 @@ const performDBOperation = async <T>(
   });
 };
 
+// Multi-store database operations
+const performMultiStoreDBOperation = async <T>(
+  storeNames: string[],
+  operation: (stores: IDBObjectStore[]) => Promise<T>,
+  mode: IDBTransactionMode = 'readwrite'
+): Promise<T> => {
+  const db = await initDB();
+  const transaction = db.transaction(storeNames, mode);
+  const stores = storeNames.map(name => transaction.objectStore(name));
+
+  return new Promise(async (resolve, reject) => {
+    transaction.oncomplete = () => resolve;
+    transaction.onerror = () => reject(transaction.error);
+    
+    try {
+      const result = await operation(stores);
+      resolve(result);
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
 // Auth persistence
 export const saveAuthData = async (user: AppUser): Promise<void> => {
   await performDBOperation(
@@ -277,11 +308,57 @@ export const getProjectsByStatus = async (status: string): Promise<Project[]> =>
 };
 
 export const deleteProject = async (id: string): Promise<void> => {
-  await performDBOperation(
-    STORES.PROJECTS,
-    (store) => store.delete(id),
-    'readwrite'
-  );
+  try {
+    console.log('Offline storage: Starting comprehensive project deletion for:', id);
+
+    // Delete from projects store
+    await performDBOperation(
+      STORES.PROJECTS,
+      (store) => store.delete(id),
+      'readwrite'
+    );
+
+    // Delete associated milestones - simplified approach
+    try {
+      const milestones = await performDBOperation<any[]>(
+        STORES.MILESTONES,
+        (store) => store.index('projectId').getAll(id)
+      );
+
+      for (const milestone of milestones || []) {
+        await performDBOperation(
+          STORES.MILESTONES,
+          (store) => store.delete(milestone.id),
+          'readwrite'
+        );
+      }
+    } catch (error) {
+      console.warn('Error deleting milestones:', error);
+    }
+
+    // Delete associated complaints - simplified approach
+    try {
+      const complaints = await performDBOperation<any[]>(
+        STORES.COMPLAINTS,
+        (store) => store.index('projectId').getAll(id)
+      );
+
+      for (const complaint of complaints || []) {
+        await performDBOperation(
+          STORES.COMPLAINTS,
+          (store) => store.delete(complaint.id),
+          'readwrite'
+        );
+      }
+    } catch (error) {
+      console.warn('Error deleting complaints:', error);
+    }
+
+    console.log('Offline storage: Project deletion completed for:', id);
+  } catch (error) {
+    console.error('Error in comprehensive project deletion:', error);
+    throw error;
+  }
 };
 
 // User operations

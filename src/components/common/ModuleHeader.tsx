@@ -27,7 +27,7 @@ const ModuleHeader: React.FC<ModuleHeaderProps> = ({
   const navigate = useNavigate();
 
   return (
-    <div className="bg-white/80 backdrop-blur-lg shadow-lg border-b border-white/20 sticky top-0 z-40">
+    <div className="bg-white/80 backdrop-blur-lg shadow-lg border-b border-white/20 sticky top-0 z-40 flex-shrink-0">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Mobile Layout */}
         <div className="block sm:hidden">

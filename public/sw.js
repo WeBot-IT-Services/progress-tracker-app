@@ -2,10 +2,12 @@
 // Provides seamless background updates without visible page refreshes
 
 // Version-based cache names for seamless updates
-const VERSION = '3.13.0';
-const CACHE_NAME = `progress-tracker-v${VERSION}`;
-const STATIC_CACHE_NAME = `progress-tracker-static-v${VERSION}`;
-const DYNAMIC_CACHE_NAME = `progress-tracker-dynamic-v${VERSION}`;
+const VERSION = '3.14.0';
+const BUILD_TIMESTAMP = 1751963670395;
+const BUILD_ID = 'd70f53b-1751963670395';
+const CACHE_NAME = `progress-tracker-v${VERSION}-${BUILD_ID}`;
+const STATIC_CACHE_NAME = `progress-tracker-static-v${VERSION}-${BUILD_ID}`;
+const DYNAMIC_CACHE_NAME = `progress-tracker-dynamic-v${VERSION}-${BUILD_ID}`;
 
 // Update state management
 let updateInProgress = false;
@@ -16,19 +18,9 @@ const STATIC_FILES = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icon-192x192.png',
-  '/icon-512x512.png',
-  '/favicon.ico',
-  // Core application routes for offline access
-  '/dashboard',
-  '/sales',
-  '/design',
-  '/production',
-  '/installation',
-  '/tracker',
-  '/complaints',
-  '/settings',
-  '/admin'
+  '/mysteel-favicon.png'
+  // Note: Only including essential files that are guaranteed to exist
+  // Dynamic assets will be cached on first request
 ];
 
 // Additional resources to cache for full offline functionality
@@ -55,8 +47,33 @@ self.addEventListener('install', (event) => {
         // Cache new static files in background for comprehensive offline functionality
         const staticCache = await caches.open(STATIC_CACHE_NAME);
         console.log('Service Worker: Caching static files for offline access');
-        await staticCache.addAll(STATIC_FILES);
-        console.log('Service Worker: Static files cached for offline functionality');
+        
+        // Cache files one by one with more robust error handling
+        let cachedCount = 0;
+        for (const file of STATIC_FILES) {
+          try {
+            // Create a proper request object
+            const request = new Request(file, { 
+              cache: 'no-cache',
+              credentials: 'same-origin'
+            });
+            
+            // Try to fetch the file first
+            const response = await fetch(request);
+            if (response.ok) {
+              await staticCache.put(request, response);
+              console.log(`Service Worker: Cached ${file}`);
+              cachedCount++;
+            } else {
+              console.warn(`Service Worker: File not found ${file} (${response.status})`);
+            }
+          } catch (error) {
+            console.warn(`Service Worker: Failed to cache ${file}:`, error.message);
+            // Continue with other files instead of failing completely
+          }
+        }
+        
+        console.log(`Service Worker: ${cachedCount}/${STATIC_FILES.length} static files cached for offline functionality`);
 
         // Initialize dynamic cache for runtime caching
         await caches.open(DYNAMIC_CACHE_NAME);
@@ -475,8 +492,19 @@ async function performOfflineSync() {
 
 // Handle messages from the main app
 self.addEventListener('message', (event) => {
+  if (!event.data) {
+    console.log('Service Worker: Received message with no data');
+    return;
+  }
+
   const { type, payload } = event.data;
   
+  // Handle undefined type gracefully
+  if (type === undefined) {
+    console.log('Service Worker: Received message with undefined type:', event.data);
+    return;
+  }
+
   switch (type) {
     case 'SKIP_WAITING':
       self.skipWaiting();
@@ -489,9 +517,33 @@ self.addEventListener('message', (event) => {
     case 'CLEAR_CACHE':
       clearCache(payload.cacheName);
       break;
-      
+
+    case 'CHECK_FOR_UPDATES':
+      // Trigger update check
+      console.log('SW: Manual update check requested');
+      self.registration.update().then(() => {
+        console.log('SW: Update check completed');
+      });
+      break;
+
+    case 'FORCE_UPDATE':
+      // Force immediate update
+      console.log('SW: Force update requested');
+      forceUpdate();
+      break;
+
+    case 'GET_VERSION':
+      // Send current version back to client
+      if (event.ports && event.ports[0]) {
+        event.ports[0].postMessage({
+          type: 'VERSION_INFO',
+          payload: { version: VERSION, buildTimestamp: BUILD_TIMESTAMP }
+        });
+      }
+      break;
+
     default:
-      console.log('Service Worker: Unknown message type', type);
+      console.log('Service Worker: Unknown message type', type, '-- payload:', payload);
   }
 });
 
@@ -513,6 +565,37 @@ async function clearCache(cacheName) {
     console.log('Service Worker: Cache cleared', cacheName);
   } catch (error) {
     console.error('Service Worker: Error clearing cache', error);
+  }
+}
+
+// Force update function
+async function forceUpdate() {
+  try {
+    console.log('SW: Starting force update process');
+
+    // Clear all caches
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames.map(name => caches.delete(name)));
+    console.log('SW: All caches cleared for force update');
+
+    // Notify all clients that force update is ready
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => {
+      client.postMessage({
+        type: 'SW_FORCE_UPDATE_READY',
+        payload: {
+          version: VERSION,
+          buildTimestamp: BUILD_TIMESTAMP,
+          message: 'Force update completed - reload required'
+        }
+      });
+    });
+
+    // Skip waiting to become active immediately
+    self.skipWaiting();
+
+  } catch (error) {
+    console.error('SW: Error during force update:', error);
   }
 }
 

@@ -1,31 +1,32 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import MysteelLogo from '../common/MysteelLogo';
+import FirstTimePasswordSetup from './FirstTimePasswordSetup';
+import { adminUserService } from '../../services/adminUserService';
+import EnhancedEmployeeIdAuthService from '../../services/enhancedEmployeeIdAuth';
 import type { UserRole } from '../../types';
 import {
   Eye,
   EyeOff,
-  Shield,
-  Users,
-  Wrench,
-  Factory,
   Mail,
   Lock,
   User,
   ArrowRight,
   CheckCircle,
-  Settings
+  Settings,
+  Key,
+  AlertCircle,
+  Info
 } from 'lucide-react';
 
 interface LoginFormProps {
-  onToggleMode: () => void;
-  isRegisterMode: boolean;
+  // No props needed for login-only mode
 }
 
-const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode, isRegisterMode }) => {
+const LoginForm: React.FC<LoginFormProps> = () => {
   const { login, register } = useAuth();
   const [formData, setFormData] = useState({
-    email: '',
+    identifier: '',
     password: '',
     name: '',
     role: 'sales' as UserRole
@@ -33,6 +34,63 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode, isRegisterMode }) =
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordSetup, setShowPasswordSetup] = useState(false);
+  const [firstTimeEmail, setFirstTimeEmail] = useState('');
+  const [identifierValidation, setIdentifierValidation] = useState<any>(null);
+  const [showEmployeeIdHelp, setShowEmployeeIdHelp] = useState(false);
+
+  // Quick access employee IDs for Firebase demo users
+  const [quickAccessIds] = useState([
+    { id: 'A0001', department: 'Admin', name: 'Admin', icon: '👑', color: 'from-yellow-400 to-yellow-600' },
+    { id: 'S0001', department: 'Sales', name: 'Sales', icon: '💼', color: 'from-blue-400 to-blue-600' },
+    { id: 'D0001', department: 'Design', name: 'Design', icon: '🎨', color: 'from-purple-400 to-purple-600' },
+    { id: 'P0001', department: 'Production', name: 'Production', icon: '🏭', color: 'from-green-400 to-green-600' },
+    { id: 'I0001', department: 'Install', name: 'Install', icon: '🔧', color: 'from-orange-400 to-orange-600' }
+  ]);
+
+
+
+  // Validate identifier as user types
+  const validateIdentifier = (identifier: string) => {
+    const validation = EnhancedEmployeeIdAuthService.validateIdentifier(identifier);
+    setIdentifierValidation(validation);
+    return validation;
+  };
+
+  // Quick access handler - now includes demo login
+  const handleQuickAccess = (employeeId: string) => {
+    setFormData(prev => ({ ...prev, identifier: employeeId }));
+    validateIdentifier(employeeId);
+  };
+
+  // Firebase-based demo login handler
+  const handleDemoLogin = async (employeeId: string) => {
+    setLoading(true);
+    setError('');
+
+    try {
+      console.log(`🎯 Attempting Firebase demo login for Employee ID: ${employeeId}`);
+
+      // Use the standard Firebase authentication flow
+      // The demo users must exist in Firebase Authentication with proper credentials
+      await login(employeeId, 'WR2024'); // Standard demo password for Firebase users
+
+      console.log(`✅ Firebase demo login successful for ${employeeId}`);
+    } catch (authError: any) {
+      console.log('❌ Firebase demo login failed:', authError.message);
+
+      // Provide helpful error message for missing demo users
+      if (authError.message.includes('No account found') || authError.message.includes('invalid-credential')) {
+        setError(`Demo user ${employeeId} not found in Firebase. Please ensure demo users are created in Firebase Authentication.`);
+      } else {
+        setError('Demo login failed. Please try again or contact administrator.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,369 +98,310 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode, isRegisterMode }) =
     setError('');
 
     try {
-      if (isRegisterMode) {
-        await register(formData.email, formData.password, formData.name, formData.role);
-      } else {
-        await login(formData.email, formData.password);
+      // Use enhanced employee ID authentication service
+      try {
+        await EnhancedEmployeeIdAuthService.login(formData.identifier, formData.password);
+      } catch (authError: any) {
+        // Check if this is a first-time user that needs password setup
+        if (authError.code === 'auth/invalid-credential' || authError.code === 'auth/user-not-found') {
+          const email = formData.identifier.includes('@') ? formData.identifier : null;
+          if (email) {
+            const userStatus = await adminUserService.checkPasswordStatus(email);
+            if (userStatus.exists && userStatus.needsPassword) {
+              setFirstTimeEmail(email);
+              setShowPasswordSetup(true);
+              return;
+            }
+          }
+        }
+        throw authError;
       }
     } catch (error: any) {
-      setError(error.message || 'An error occurred');
+      setError(error.message || 'An error occurred during authentication');
     } finally {
       setLoading(false);
     }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [e.target.name]: e.target.value
+      [name]: value
     }));
+    
+    // Validate identifier on change
+    if (name === 'identifier') {
+      validateIdentifier(value);
+    }
+    
+    if (error) setError('');
   };
 
-  // Production credentials for quick demo access
-  const PRODUCTION_CREDENTIALS = {
-    'admin@mysteel.com': 'MS2024!Admin#Secure',
-    'sales@mysteel.com': 'MS2024!Sales#Manager',
-    'design@mysteel.com': 'MS2024!Design#Engineer',
-    'production@mysteel.com': 'MS2024!Prod#Manager',
-    'installation@mysteel.com': 'MS2024!Install#Super'
+  // Get appropriate icon based on identifier type
+  const getIdentifierIcon = () => {
+    if (!identifierValidation) return <Mail className="w-5 h-5 text-white/40" />;
+    
+    switch (identifierValidation.format) {
+      case 'email': return <Mail className="w-5 h-5 text-blue-400" />;
+      case 'employeeId': return <User className="w-5 h-5 text-green-400" />;
+      default: return <Mail className="w-5 h-5 text-white/40" />;
+    }
   };
 
-  const quickLogin = (email: string) => {
-    const password = PRODUCTION_CREDENTIALS[email as keyof typeof PRODUCTION_CREDENTIALS];
-    setFormData(prev => ({ ...prev, email, password }));
+  // Get validation message
+  const getValidationMessage = () => {
+    if (!identifierValidation || !formData.identifier) return null;
+    
+    if (identifierValidation.format === 'invalid' && formData.identifier.length > 0) {
+      return (
+        <div className="flex items-center text-red-300 text-sm mt-1">
+          <AlertCircle className="w-4 h-4 mr-1" />
+          {identifierValidation.error}
+        </div>
+      );
+    }
+    
+    if (identifierValidation.format === 'employeeId') {
+      return (
+        <div className="flex items-center text-green-300 text-sm mt-1">
+          <CheckCircle className="w-4 h-4 mr-1" />
+          Valid Employee ID ({identifierValidation.department?.toUpperCase()})
+        </div>
+      );
+    }
+    
+    if (identifierValidation.format === 'email') {
+      return (
+        <div className="flex items-center text-blue-300 text-sm mt-1">
+          <CheckCircle className="w-4 h-4 mr-1" />
+          Valid email format
+        </div>
+      );
+    }
+    
+    return null;
   };
+
+  // If showing password setup, render that component instead
+  if (showPasswordSetup) {
+    return (
+      <FirstTimePasswordSetup
+        email={firstTimeEmail}
+        onComplete={(success) => {
+          setShowPasswordSetup(false);
+          if (success) {
+            // Password was set successfully, show success message
+            setError('');
+            alert('Password set successfully! Please log in with your new password.');
+          }
+        }}
+        onBack={() => {
+          setShowPasswordSetup(false);
+          setFirstTimeEmail('');
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 relative overflow-hidden">
-      {/* Enhanced Animated Background */}
+      {/* Subtle Background Effects */}
       <div className="absolute inset-0">
-        {/* Gradient Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 via-purple-600/20 to-indigo-600/20"></div>
-
-        {/* Floating Orbs */}
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/30 rounded-full mix-blend-multiply filter blur-3xl animate-pulse"></div>
-        <div className="absolute top-3/4 right-1/4 w-96 h-96 bg-purple-500/30 rounded-full mix-blend-multiply filter blur-3xl animate-pulse" style={{animationDelay: '2s'}}></div>
-        <div className="absolute bottom-1/4 left-1/3 w-96 h-96 bg-indigo-500/30 rounded-full mix-blend-multiply filter blur-3xl animate-pulse" style={{animationDelay: '4s'}}></div>
-
-        {/* Grid Pattern */}
-        <div className="absolute inset-0 opacity-40" style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Ccircle cx='30' cy='30' r='1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
-        }}></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 via-purple-600/10 to-indigo-600/10"></div>
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/20 rounded-full mix-blend-multiply filter blur-3xl"></div>
+        <div className="absolute top-3/4 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full mix-blend-multiply filter blur-3xl"></div>
       </div>
 
       {/* Main Container */}
-      <div className="relative z-10 min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8">
-        <div className="w-full max-w-md space-y-8 animate-fade-in">
+      <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-sm space-y-8">
 
           {/* Logo and Header */}
-          <div className="text-center space-y-6">
-            <div className="relative">
-              <MysteelLogo
-                size="xl"
-                variant="icon"
-                className="mx-auto transform hover:scale-105 transition-all duration-500 hover:rotate-3 shadow-2xl"
-              />
-              <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 rounded-3xl blur opacity-30 animate-pulse"></div>
-            </div>
-
-            <div className="space-y-3">
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white tracking-tight">
-                <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent">
-                  Progress
-                </span>
-                <br />
-                <span className="text-white">Tracker</span>
-              </h1>
-
-              <div className="space-y-2">
-                <p className="text-blue-200 text-lg sm:text-xl font-medium">
-                  Mysteel Construction Management
-                </p>
-                <div className="flex items-center justify-center space-x-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <p className="text-slate-300 text-sm opacity-90">
-                    {isRegisterMode ? 'Create your account to get started' : 'Welcome back, sign in to continue'}
-                  </p>
-                </div>
-              </div>
-            </div>
+          <div className="text-center space-y-4">
+            <MysteelLogo
+              size="lg"
+              variant="full"
+              className="mx-auto"
+            />
           </div>
 
-          {/* Enhanced Login Form */}
-          <div className="relative">
-            {/* Glass Card */}
-            <div className="bg-white/10 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/20 relative overflow-hidden">
-              {/* Card Glow Effect */}
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-indigo-500/10 rounded-3xl"></div>
-
-              <div className="relative z-10">
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  {isRegisterMode && (
-                    <div className="space-y-6 animate-slide-down">
-                      {/* Name Field */}
-                      <div className="space-y-2">
-                        <label className="flex items-center space-x-2 text-sm font-semibold text-white/90">
-                          <User className="w-4 h-4" />
-                          <span>Full Name</span>
-                        </label>
-                        <div className="relative group">
-                          <input
-                            type="text"
-                            name="name"
-                            placeholder="Enter your full name"
-                            value={formData.name}
-                            onChange={handleInputChange}
-                            className="w-full px-4 py-4 bg-white/5 border border-white/20 rounded-2xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400/50 transition-all duration-300 text-base group-hover:bg-white/10"
-                            required
-                          />
-                          <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-500/20 to-purple-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
-                        </div>
-                      </div>
-
-                      {/* Role Field */}
-                      <div className="space-y-2">
-                        <label className="flex items-center space-x-2 text-sm font-semibold text-white/90">
-                          <Shield className="w-4 h-4" />
-                          <span>Department Role</span>
-                        </label>
-                        <div className="relative group">
-                          <select
-                            name="role"
-                            value={formData.role}
-                            onChange={handleInputChange}
-                            className="w-full px-4 py-4 bg-white/5 border border-white/20 rounded-2xl text-white focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400/50 transition-all duration-300 text-base appearance-none cursor-pointer group-hover:bg-white/10"
-                            required
-                          >
-                            <option value="sales" className="bg-slate-800 text-white">👥 Sales Department</option>
-                            <option value="designer" className="bg-slate-800 text-white">🎨 Design & Engineering</option>
-                            <option value="production" className="bg-slate-800 text-white">🏭 Production Team</option>
-                            <option value="installation" className="bg-slate-800 text-white">🔧 Installation Crew</option>
-                            <option value="admin" className="bg-slate-800 text-white">👑 Administrator</option>
-                          </select>
-                          <div className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                            <svg className="w-5 h-5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Email Field */}
-                  <div className="space-y-2">
-                    <label className="flex items-center space-x-2 text-sm font-semibold text-white/90">
-                      <Mail className="w-4 h-4" />
-                      <span>Email Address</span>
-                    </label>
-                    <div className="relative group">
-                      <input
-                        type="email"
-                        name="email"
-                        placeholder="Enter your email address"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-4 bg-white/5 border border-white/20 rounded-2xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400/50 transition-all duration-300 text-base group-hover:bg-white/10"
-                        required
-                      />
-                      <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-500/20 to-purple-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
-                    </div>
-                  </div>
-
-                  {/* Password Field */}
-                  <div className="space-y-2">
-                    <label className="flex items-center space-x-2 text-sm font-semibold text-white/90">
-                      <Lock className="w-4 h-4" />
-                      <span>Password</span>
-                    </label>
-                    <div className="relative group">
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        name="password"
-                        placeholder="Enter your password"
-                        value={formData.password}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-4 pr-12 bg-white/5 border border-white/20 rounded-2xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400/50 transition-all duration-300 text-base group-hover:bg-white/10"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-4 top-1/2 transform -translate-y-1/2 text-white/50 hover:text-white transition-colors duration-200 p-1"
-                      >
-                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                      </button>
-                      <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-500/20 to-purple-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
-                    </div>
-                  </div>
-
-                  {/* Error Message */}
-                  {error && (
-                    <div className="bg-red-500/20 border border-red-400/30 text-red-200 px-4 py-3 rounded-2xl text-sm backdrop-blur-sm animate-slide-down">
-                      <div className="flex items-center space-x-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>{error}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Submit Button */}
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full relative group bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 hover:from-blue-600 hover:via-purple-600 hover:to-indigo-600 text-white font-bold py-4 px-6 rounded-2xl transition-all duration-300 transform hover:scale-[1.02] disabled:opacity-50 disabled:transform-none shadow-2xl text-base overflow-hidden"
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-r from-blue-400 via-purple-400 to-indigo-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
-                    <div className="relative z-10 flex items-center justify-center space-x-2">
-                      {loading ? (
-                        <>
-                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                          <span>{isRegisterMode ? 'Creating Account...' : 'Signing In...'}</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>{isRegisterMode ? 'Create Account' : 'Sign In'}</span>
-                          <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-200" />
-                        </>
-                      )}
-                    </div>
-                  </button>
-                </form>
-
-                {/* Toggle Mode */}
-                <div className="mt-8 text-center">
+          {/* Clean Login Form */}
+          <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-2xl">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              
+              {/* Email/ID Field */}
+              <div>
+                <label className="flex items-center text-sm font-medium text-white/80 mb-2">
+                  {getIdentifierIcon()}
+                  <span className="ml-2">Email or Employee ID</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    name="identifier"
+                    value={formData.identifier}
+                    onChange={handleInputChange}
+                    className={`w-full px-4 py-3 pr-12 bg-white/10 border rounded-xl text-white placeholder-white/40
+                             focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all duration-200 ${
+                               identifierValidation?.format === 'invalid' && formData.identifier.length > 0
+                                 ? 'border-red-400/50 focus:ring-red-400/50'
+                                 : identifierValidation?.format === 'employeeId'
+                                 ? 'border-green-400/50 focus:ring-green-400/50'
+                                 : identifierValidation?.format === 'email'
+                                 ? 'border-blue-400/50 focus:ring-blue-400/50'
+                                 : 'border-white/20 focus:ring-blue-400/50'
+                             }`}
+                    placeholder="Enter email or employee ID (e.g., A0001, S0001)"
+                    required
+                  />
                   <button
                     type="button"
-                    onClick={onToggleMode}
-                    className="text-blue-300 hover:text-blue-200 text-sm font-semibold transition-colors duration-200 relative group"
+                    onClick={() => setShowEmployeeIdHelp(!showEmployeeIdHelp)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors"
                   >
-                    <span className="relative z-10">
-                      {isRegisterMode
-                        ? "Already have an account? Sign In"
-                        : "Don't have an account? Create One"
-                      }
-                    </span>
-                    <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-300 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-200"></div>
+                    <Info className="w-5 h-5" />
+                  </button>
+                </div>
+                {getValidationMessage()}
+                
+                {/* Employee ID Help */}
+                {showEmployeeIdHelp && (
+                  <div className="mt-2 p-3 bg-blue-500/20 border border-blue-400/50 rounded-xl">
+                    <h4 className="text-sm font-medium text-blue-200 mb-2">Employee ID Format:</h4>
+                    <div className="text-xs text-blue-300 space-y-1">
+                      <div>• <strong>Admin:</strong> A0001, A0002, etc.</div>
+                      <div>• <strong>Sales:</strong> S0001, S0002, etc.</div>
+                      <div>• <strong>Design:</strong> D0001, D0002, etc.</div>
+                      <div>• <strong>Production:</strong> P0001, P0002, etc.</div>
+                      <div>• <strong>Installation:</strong> I0001, I0002, etc.</div>
+                    </div>
+                    <div className="mt-2 text-xs text-blue-200">
+                      Don't know your Employee ID? Contact your supervisor or HR.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Password Field */}
+              <div>
+                <label className="flex items-center text-sm font-medium text-white/80 mb-2">
+                  <Lock className="w-4 h-4 mr-2" />
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    name="password"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 pr-12 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 
+                             focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-transparent transition-all duration-200"
+                    placeholder="Enter your password (optional for demo accounts)"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
               </div>
-            </div>
+
+              {/* Error Display */}
+              {error && (
+                <div className="bg-red-500/20 border border-red-400/50 text-red-200 px-4 py-3 rounded-xl text-sm">
+                  {error}
+                </div>
+              )}
+
+              {/* Remember Me */}
+              <div className="flex items-center justify-between text-sm">
+                <label className="flex items-center space-x-2 cursor-pointer text-white/60 hover:text-white/80">
+                  <input
+                    type="checkbox"
+                    className="rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-400/50"
+                  />
+                  <span>Remember me</span>
+                </label>
+                <button
+                  type="button"
+                  className="text-blue-300 hover:text-blue-200 transition-colors"
+                  onClick={() => alert('Forgot password feature coming soon!')}
+                >
+                  Forgot password?
+                </button>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading || (identifierValidation?.format === 'invalid' && formData.identifier.length > 0)}
+                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 
+                         text-white py-3 px-6 rounded-xl font-semibold transition-all duration-200 
+                         hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed
+                         flex items-center justify-center space-x-2"
+              >
+                {loading ? (
+                  <>
+                    <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Signing In...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Sign In</span>
+                    <ArrowRight className="w-5 h-5" />
+                  </>
+                )}
+              </button>
+
+              {/* Quick Demo Access Section */}
+              <div className="mt-6 p-4 bg-white/5 rounded-xl border border-white/10">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-sm text-white/80 font-medium">Quick Demo Access</div>
+                  <Settings className="w-4 h-4 text-white/60" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {quickAccessIds.map((employee) => (
+                    <button
+                      key={employee.id}
+                      type="button"
+                      onClick={() => handleDemoLogin(employee.id)}
+                      disabled={loading}
+                      className={`relative overflow-hidden rounded-lg p-3 text-left transition-all duration-200 hover:scale-105 hover:shadow-lg
+                                bg-gradient-to-r ${employee.color} text-white font-medium text-sm
+                                hover:brightness-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <span className="text-base">{employee.icon}</span>
+                        <div>
+                          <div className="font-semibold">{employee.name}</div>
+                          <div className="text-xs opacity-90">({employee.id})</div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 text-xs text-white/60 text-center">
+                  Firebase Authentication • Demo Users
+                </div>
+              </div>
+
+            </form>
           </div>
 
-          {/* Enhanced Quick Login Section */}
-          {!isRegisterMode && (
-            <div className="mt-8 space-y-4">
-              <div className="text-center">
-                <p className="text-white/60 text-sm font-medium mb-4">Quick Demo Access</p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  onClick={() => quickLogin('admin@mysteel.com')}
-                  className="group bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10 hover:border-white/20 transition-all duration-300 text-left"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-xl flex items-center justify-center">
-                      <Shield className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h4 className="text-white font-semibold text-sm">Admin Access</h4>
-                      <p className="text-white/60 text-xs">Full system control</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs text-white/40 font-mono">
-                    admin@mysteel.com
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => quickLogin('sales@mysteel.com')}
-                  className="group bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10 hover:border-white/20 transition-all duration-300 text-left"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-r from-green-400 to-blue-500 rounded-xl flex items-center justify-center">
-                      <Users className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h4 className="text-white font-semibold text-sm">Sales Demo</h4>
-                      <p className="text-white/60 text-xs">Sales department</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs text-white/40 font-mono">
-                    sales@mysteel.com
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => quickLogin('design@mysteel.com')}
-                  className="group bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10 hover:border-white/20 transition-all duration-300 text-left"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-r from-purple-400 to-pink-500 rounded-xl flex items-center justify-center">
-                      <Wrench className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h4 className="text-white font-semibold text-sm">Designer</h4>
-                      <p className="text-white/60 text-xs">Design & engineering</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs text-white/40 font-mono">
-                    design@mysteel.com
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => quickLogin('production@mysteel.com')}
-                  className="group bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10 hover:border-white/20 transition-all duration-300 text-left"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-r from-orange-400 to-red-500 rounded-xl flex items-center justify-center">
-                      <Factory className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h4 className="text-white font-semibold text-sm">Production</h4>
-                      <p className="text-white/60 text-xs">Manufacturing</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs text-white/40 font-mono">
-                    production@mysteel.com
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => quickLogin('installation@mysteel.com')}
-                  className="group bg-white/5 hover:bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10 hover:border-white/20 transition-all duration-300 text-left"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-cyan-500 rounded-xl flex items-center justify-center">
-                      <Settings className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h4 className="text-white font-semibold text-sm">Installation</h4>
-                      <p className="text-white/60 text-xs">Installation crew</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs text-white/40 font-mono">
-                    installation@mysteel.com
-                  </div>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Enhanced Footer */}
-          <div className="mt-8 text-center space-y-3">
+          {/* Footer */}
+          <div className="text-center space-y-2">
             <div className="flex items-center justify-center space-x-2">
               <CheckCircle className="w-4 h-4 text-green-400" />
-              <span className="text-white/60 text-xs font-medium">Secure SSL Connection</span>
+              <span className="text-white/40 text-xs">Secure SSL Connection</span>
             </div>
-            <div className="flex items-center justify-center space-x-4 text-xs text-white/40">
-              <span>© 2025 Mysteel Construction Sdn Bhd</span>
-              <span>•</span>
-              <span>Enterprise Grade Security</span>
+            <div className="text-white/30 text-xs">
+              © 2025 Mysteel Construction • Enterprise Security
             </div>
           </div>
         </div>

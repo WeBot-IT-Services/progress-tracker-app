@@ -1,5 +1,24 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { readFileSync } from 'fs'
+import { execSync } from 'child_process'
+
+// Read version from package.json
+const packageJson = JSON.parse(readFileSync('./package.json', 'utf8'))
+const APP_VERSION = packageJson.version
+
+// Generate build ID
+const generateBuildId = () => {
+  try {
+    const gitHash = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+    return `${gitHash}-${Date.now()}`;
+  } catch (error) {
+    return `build-${Date.now()}`;
+  }
+}
+
+const BUILD_ID = generateBuildId()
+const BUILD_TIMESTAMP = Date.now()
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -30,7 +49,7 @@ export default defineConfig({
           proxy.on('error', (err, _req, _res) => {
             console.log('proxy error', err);
           });
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
+          proxy.on('proxyReq', (_proxyReq, req, _res) => {
             console.log('Sending Request to the Target:', req.method, req.url);
           });
           proxy.on('proxyRes', (proxyRes, req, _res) => {
@@ -42,6 +61,10 @@ export default defineConfig({
   },
   define: {
     global: 'globalThis',
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+    __BUILD_ID__: JSON.stringify(BUILD_ID),
+    __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+    __BUILD_TIMESTAMP__: BUILD_TIMESTAMP
   },
   optimizeDeps: {
     include: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage']
@@ -49,10 +72,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // Add timestamp to filenames for cache busting
-        entryFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
-        chunkFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
-        assetFileNames: `assets/[name]-[hash]-${Date.now()}.[ext]`,
+        // Add build ID to filenames for cache busting
+        entryFileNames: `assets/[name]-[hash]-${BUILD_ID}.js`,
+        chunkFileNames: `assets/[name]-[hash]-${BUILD_ID}.js`,
+        assetFileNames: `assets/[name]-[hash]-${BUILD_ID}.[ext]`,
         manualChunks: {
           firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage']
         }

@@ -75,7 +75,9 @@ export const initSyncService = async () => {
     // Don't start periodic sync immediately - wait for authentication
     // Periodic sync will be started when user logs in
 
-    console.log('Sync service initialized successfully');
+    if (import.meta.env.DEV) {
+      console.log('Sync service initialized successfully');
+    }
   } catch (error) {
     console.error('Failed to initialize sync service:', error);
     throw error;
@@ -85,7 +87,9 @@ export const initSyncService = async () => {
 // Start sync after authentication
 export const startSyncAfterAuth = () => {
   if (isOnline() && auth.currentUser) {
-    console.log('Starting sync after authentication');
+    if (import.meta.env.DEV) {
+      console.log('Starting sync after authentication');
+    }
     startPeriodicSync();
     startSync();
   }
@@ -199,7 +203,9 @@ export const startSync = async (): Promise<void> => {
       lastSyncTime: new Date()
     });
 
-    console.log('Sync completed successfully');
+    if (import.meta.env.DEV) {
+      console.log('Sync completed successfully');
+    }
   } catch (error) {
     console.error('Sync failed:', error);
     await updateSyncStatus({
@@ -349,6 +355,8 @@ const syncFromServer = async (): Promise<void> => {
     
     for (const doc of usersSnapshot.docs) {
       const userData = doc.data();
+      // Skip if email is missing or invalid
+      if (!userData.email) continue;
       const user: AppUser = {
         uid: doc.id,
         email: userData.email,
@@ -356,10 +364,19 @@ const syncFromServer = async (): Promise<void> => {
         role: userData.role,
         department: userData.department,
         createdAt: userData.createdAt?.toDate() || new Date(),
-        updatedAt: userData.updatedAt?.toDate() || new Date()
+        updatedAt: userData.updatedAt?.toDate() || new Date(),
+        passwordSet: userData.passwordSet ?? true,
+        isTemporary: userData.isTemporary ?? false
       };
       
-      await saveUser(user);
+      try {
+        await saveUser(user);
+      } catch (e: any) {
+        // Ignore duplicate key errors for email index
+        if (e.name !== 'ConstraintError') {
+          throw e;
+        }
+      }
     }
 
   } catch (error) {
@@ -425,6 +442,8 @@ export const setupRealtimeListeners = (): (() => void)[] => {
           if (change.type === 'added' || change.type === 'modified') {
             const doc = change.doc;
             const userData = doc.data();
+            // Skip if email is missing or invalid
+            if (!userData.email) return;
             const user: AppUser = {
               uid: doc.id,
               email: userData.email,
@@ -432,10 +451,19 @@ export const setupRealtimeListeners = (): (() => void)[] => {
               role: userData.role,
               department: userData.department,
               createdAt: userData.createdAt?.toDate() || new Date(),
-              updatedAt: userData.updatedAt?.toDate() || new Date()
+              updatedAt: userData.updatedAt?.toDate() || new Date(),
+              passwordSet: userData.passwordSet ?? true,
+              isTemporary: userData.isTemporary ?? false
             };
             
-            await saveUser(user);
+            try {
+              await saveUser(user);
+            } catch (e: any) {
+              // Ignore duplicate key errors for email index
+              if (e.name !== 'ConstraintError') {
+                throw e;
+              }
+            }
           }
         });
       },
@@ -470,7 +498,9 @@ export const createProjectOffline = async (project: Omit<Project, 'id' | 'create
   await addToSyncQueue({
     type: 'CREATE',
     collection: 'projects',
-    data: newProject
+    data: newProject,
+    priority: 'medium',
+    userId: newProject.createdBy || 'unknown'
   });
 
   return id;
@@ -496,7 +526,9 @@ export const updateProjectOffline = async (id: string, updates: Partial<Project>
   await addToSyncQueue({
     type: 'UPDATE',
     collection: 'projects',
-    data: updatedProject
+    data: updatedProject,
+    priority: 'medium',
+    userId: updatedProject.createdBy || 'unknown'
   });
 };
 
@@ -508,7 +540,9 @@ export const deleteProjectOffline = async (id: string): Promise<void> => {
   await addToSyncQueue({
     type: 'DELETE',
     collection: 'projects',
-    data: { id }
+    data: { id },
+    priority: 'medium',
+    userId: 'unknown'
   });
 };
 
@@ -558,7 +592,7 @@ const processConflicts = async (): Promise<void> => {
     const resolution = await autoResolveConflict(conflict);
 
     if (resolution) {
-      await resolveConflict(conflict.id, resolution.strategy, resolution.data);
+      await resolveConflict(conflict.id, resolution.strategy as 'client-wins' | 'server-wins' | 'merged', resolution.data);
 
       // Apply resolved data
       if (resolution.strategy !== 'server-wins') {

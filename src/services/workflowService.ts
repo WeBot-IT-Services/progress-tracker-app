@@ -1,259 +1,102 @@
-// Workflow Service - Handles automatic project transitions between modules
-import { projectsService, type Project } from './firebaseService';
-
-export interface WorkflowTransition {
-  fromStatus: string;
-  toStatus: string;
-  deliveryDate?: Date;
-  reason: string;
-}
+// Workflow Service - Handles status transitions and business logic
+import type { Project, ProjectStatus } from '../types';
 
 export const workflowService = {
-  // Sales → Design (Automatic after project creation)
-  async transitionSalesToDesign(projectId: string, deliveryDate?: Date): Promise<void> {
-    try {
-      const updates: Partial<Project> = {
-        status: 'dne',
-        progress: 25,
-        salesData: {
-          deliveryDate: deliveryDate || new Date(),
-          completedAt: new Date(),
-          lastModified: new Date()
-        },
-        designData: {
-          status: 'pending',
-          lastModified: new Date(),
-          hasFlowedFromPartial: false
-        }
-      };
+  // Validate status transitions
+  canTransitionTo: (currentStatus: ProjectStatus, newStatus: ProjectStatus): boolean => {
+    const allowedTransitions: Record<ProjectStatus, ProjectStatus[]> = {
+      'sales': ['dne', 'production'],
+      'dne': ['production', 'sales'],
+      'production': ['installation', 'dne'],
+      'installation': ['completed', 'production'],
+      'completed': [] // No transitions from completed
+    };
 
-      await projectsService.updateProject(projectId, updates);
-      console.log(`Project ${projectId} automatically transitioned from Sales to Design`);
-    } catch (error) {
-      console.error('Error transitioning Sales to Design:', error);
-      throw error;
-    }
+    return allowedTransitions[currentStatus]?.includes(newStatus) || false;
   },
 
-  // Design → Production (When Design status is "Partial" or "Completed")
-  async transitionDesignToProduction(projectId: string, deliveryDate?: Date): Promise<void> {
-    try {
-      const project = await projectsService.getProject(projectId);
-      if (!project) throw new Error('Project not found');
+  // Get next available statuses
+  getNextStatuses: (currentStatus: ProjectStatus): ProjectStatus[] => {
+    const allowedTransitions: Record<ProjectStatus, ProjectStatus[]> = {
+      'sales': ['dne', 'production'],
+      'dne': ['production', 'sales'],
+      'production': ['installation', 'dne'],
+      'installation': ['completed', 'production'],
+      'completed': []
+    };
 
-      // Preserve the current design status and data - don't override what was just set
-      const currentDesignData = project.designData || {};
-
-      const updates: Partial<Project> = {
-        status: 'production',
-        progress: 50,
-        designData: {
-          ...currentDesignData,
-          // Only update deliveryDate if not already set
-          deliveryDate: currentDesignData.deliveryDate || deliveryDate || new Date(),
-          lastModified: new Date()
-        },
-        productionData: {
-          assignedAt: new Date(),
-          lastModified: new Date()
-        }
-      };
-
-      await projectsService.updateProject(projectId, updates);
-
-      // Create default production milestones automatically
-      try {
-        await projectsService.createDefaultProductionMilestones(projectId);
-        console.log(`Default production milestones created for project ${projectId}`);
-      } catch (error) {
-        console.error('Error creating default production milestones:', error);
-        // Don't fail the transition if milestone creation fails
-      }
-
-      console.log(`Project ${projectId} automatically transitioned from Design to Production (design status: ${currentDesignData.status})`);
-    } catch (error) {
-      console.error('Error transitioning Design to Production:', error);
-      throw error;
-    }
+    return allowedTransitions[currentStatus] || [];
   },
 
-  // Design → Installation (When Design status is "Partial" or "Completed")
-  async transitionDesignToInstallation(projectId: string, deliveryDate?: Date): Promise<void> {
-    try {
-      const project = await projectsService.getProject(projectId);
-      if (!project) throw new Error('Project not found');
-
-      // Preserve the current design status and data - don't override what was just set
-      const currentDesignData = project.designData || {};
-
-      const updates: Partial<Project> = {
-        status: 'installation',
-        progress: 75,
-        designData: {
-          ...currentDesignData,
-          // Only update deliveryDate if not already set
-          deliveryDate: currentDesignData.deliveryDate || deliveryDate || new Date(),
-          lastModified: new Date()
-        },
-        installationData: {
-          milestoneProgress: {},
-          lastModified: new Date()
-        }
-      };
-
-      await projectsService.updateProject(projectId, updates);
-
-      console.log(`Project ${projectId} automatically transitioned from Design to Installation (design status: ${currentDesignData.status})`);
-    } catch (error) {
-      console.error('Error transitioning Design to Installation:', error);
-      throw error;
+  // Update project status with validation
+  updateProjectStatus: async (project: Project, newStatus: ProjectStatus): Promise<Project> => {
+    if (!workflowService.canTransitionTo(project.status, newStatus)) {
+      throw new Error(`Cannot transition from ${project.status} to ${newStatus}`);
     }
+
+    const updatedProject = {
+      ...project,
+      status: newStatus,
+      updatedAt: new Date()
+    };
+
+    // Add any status-specific logic here
+    switch (newStatus) {
+      case 'production':
+        // Initialize production data if needed
+        break;
+      case 'installation':
+        // Initialize installation data if needed
+        break;
+      case 'completed':
+        // Set completion date
+        updatedProject.completionDate = new Date();
+        break;
+    }
+
+    return updatedProject;
   },
 
-  // Production → Installation
-  async transitionProductionToInstallation(projectId: string, deliveryDate?: Date): Promise<void> {
-    try {
-      const project = await projectsService.getProject(projectId);
-      if (!project) throw new Error('Project not found');
+  // Get workflow progress percentage
+  getProgressPercentage: (status: ProjectStatus): number => {
+    const progressMap: Record<ProjectStatus, number> = {
+      'sales': 0,
+      'dne': 25,
+      'production': 50,
+      'installation': 75,
+      'completed': 100
+    };
 
-      const updates: Partial<Project> = {
-        status: 'installation',
-        progress: 75,
-        productionData: {
-          ...project.productionData,
-          deliveryDate: deliveryDate || new Date(),
-          completedAt: new Date(),
-          lastModified: new Date()
-        },
-        installationData: {
-          milestoneProgress: {},
-          lastModified: new Date()
-        }
-      };
-
-      await projectsService.updateProject(projectId, updates);
-      console.log(`Project ${projectId} automatically transitioned from Production to Installation`);
-    } catch (error) {
-      console.error('Error transitioning Production to Installation:', error);
-      throw error;
-    }
+    return progressMap[status] || 0;
   },
 
-  // Installation → Completed (with validation)
-  async transitionInstallationToCompleted(projectId: string, deliveryDate?: Date): Promise<void> {
-    try {
-      const project = await projectsService.getProject(projectId);
-      if (!project) throw new Error('Project not found');
+  // Get status display information
+  getStatusInfo: (status: ProjectStatus) => {
+    const statusInfo: Record<ProjectStatus, { label: string; color: string; icon: string }> = {
+      'sales': { label: 'Sales', color: 'blue', icon: '💼' },
+      'dne': { label: 'Design & Engineering', color: 'purple', icon: '🎨' },
+      'production': { label: 'Production', color: 'green', icon: '🏭' },
+      'installation': { label: 'Installation', color: 'orange', icon: '🔧' },
+      'completed': { label: 'Completed', color: 'gray', icon: '✅' }
+    };
 
-      // Validate all milestones are completed
-      const milestones = await projectsService.getMilestonesByProject(projectId);
-      const incompleteMilestones = milestones.filter(m => m.status !== 'completed');
-
-      if (incompleteMilestones.length > 0) {
-        const incompleteList = incompleteMilestones.map(m => m.title).join(', ');
-        throw new Error(`Cannot complete project. The following milestones are not completed: ${incompleteList}`);
-      }
-
-      const updates: Partial<Project> = {
-        status: 'completed',
-        progress: 100,
-        installationData: {
-          ...project.installationData,
-          deliveryDate: deliveryDate || new Date(),
-          completedAt: new Date(),
-          lastModified: new Date()
-        }
-      };
-
-      await projectsService.updateProject(projectId, updates);
-      console.log(`Project ${projectId} automatically transitioned from Installation to Completed`);
-    } catch (error) {
-      console.error('Error transitioning Installation to Completed:', error);
-      throw error;
-    }
+    return statusInfo[status] || { label: 'Unknown', color: 'gray', icon: '❓' };
   },
 
-  // Move Design project to history (when status is "Completed")
-  async moveDesignToHistory(projectId: string): Promise<void> {
-    try {
-      const project = await projectsService.getProject(projectId);
-      if (!project) throw new Error('Project not found');
+  // Calculate estimated completion date based on status and current date
+  calculateEstimatedCompletion: (status: ProjectStatus, baseDate: Date = new Date()): Date => {
+    const daysToAdd: Record<ProjectStatus, number> = {
+      'sales': 60, // 2 months
+      'dne': 45, // 1.5 months
+      'production': 30, // 1 month
+      'installation': 14, // 2 weeks
+      'completed': 0
+    };
 
-      // Mark design as completed and moved to history
-      const updates: Partial<Project> = {
-        designData: {
-          ...project.designData,
-          status: 'completed',
-          completedAt: new Date(),
-          lastModified: new Date()
-        }
-      };
-
-      await projectsService.updateProject(projectId, updates);
-      console.log(`Project ${projectId} moved to Design history`);
-    } catch (error) {
-      console.error('Error moving Design to history:', error);
-      throw error;
-    }
-  },
-
-  // Get workflow history for a project
-  async getProjectWorkflowHistory(projectId: string): Promise<WorkflowTransition[]> {
-    try {
-      const project = await projectsService.getProject(projectId);
-      if (!project) return [];
-
-      const history: WorkflowTransition[] = [];
-
-      // Sales completion
-      if (project.salesData?.completedAt) {
-        history.push({
-          fromStatus: 'sales',
-          toStatus: 'dne',
-          deliveryDate: project.salesData.deliveryDate,
-          reason: 'Automatic transition after sales completion'
-        });
-      }
-
-      // Design transitions
-      if (project.designData?.deliveryDate) {
-        const nextStatus = project.status === 'production' ? 'production' : 'installation';
-        history.push({
-          fromStatus: 'dne',
-          toStatus: nextStatus,
-          deliveryDate: project.designData.deliveryDate,
-          reason: `Design ${project.designData.status} - automatic transition`
-        });
-      }
-
-      // Production completion
-      if (project.productionData?.completedAt) {
-        history.push({
-          fromStatus: 'production',
-          toStatus: 'installation',
-          deliveryDate: project.productionData.deliveryDate,
-          reason: 'Production completed - automatic transition'
-        });
-      }
-
-      // Installation completion
-      if (project.installationData?.completedAt) {
-        history.push({
-          fromStatus: 'installation',
-          toStatus: 'completed',
-          deliveryDate: project.installationData.deliveryDate,
-          reason: 'Installation completed - automatic transition'
-        });
-      }
-
-      return history.sort((a, b) => {
-        const aDate = a.deliveryDate || new Date(0);
-        const bDate = b.deliveryDate || new Date(0);
-        return aDate.getTime() - bDate.getTime();
-      });
-    } catch (error) {
-      console.error('Error getting workflow history:', error);
-      return [];
-    }
+    const estimatedDate = new Date(baseDate);
+    estimatedDate.setDate(estimatedDate.getDate() + daysToAdd[status]);
+    return estimatedDate;
   }
 };
+
+export default workflowService;

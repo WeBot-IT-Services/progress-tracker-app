@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Factory, Plus, Calendar, CheckCircle, Clock, Edit, Trash2, Lock, ArrowRight, Image as ImageIcon } from 'lucide-react';
-import ModuleHeader from '../common/ModuleHeader';
+import { Factory, Plus, Calendar, CheckCircle, Clock, Edit, Trash2, Lock, ArrowRight, Image as ImageIcon, X, Wrench } from 'lucide-react';
+import ModuleContainer from '../common/ModuleContainer';
 import MilestoneImageUpload from './MilestoneImageUpload';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectsService, milestonesService, type Project, type Milestone } from '../../services/firebaseService';
 import { workflowService } from '../../services/workflowService';
 import { getModulePermissions } from '../../utils/permissions';
+import { safeFormatDate, formatDueDate, formatCompletionDate } from '../../utils/dateUtils';
 
 const ProductionModule: React.FC = () => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'wip' | 'history'>('wip');
+  const [activeTab, setActiveTab] = useState<'wip' | 'history' | 'installation'>('wip');
   const [wipProjects, setWipProjects] = useState<Project[]>([]);
   const [historyProjects, setHistoryProjects] = useState<Project[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -22,23 +23,89 @@ const ProductionModule: React.FC = () => {
   const [showEditMilestone, setShowEditMilestone] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
+    description: '',
     startDate: '',
     assignedTo: ''
   });
   const [submitting, setSubmitting] = useState(false);
   const [hasEditedMilestones, setHasEditedMilestones] = useState<Record<string, boolean>>({});
+  
+  // Add state to prevent duplicate milestone creation
+  const [creatingMilestonesFor, setCreatingMilestonesFor] = useState<Set<string>>(new Set());
+  const [milestonesCreated, setMilestonesCreated] = useState<Set<string>>(new Set());
+  
+  // Add state to track milestones for each project
+  const [projectMilestones, setProjectMilestones] = useState<Record<string, Milestone[]>>({});
 
 
   // Get user permissions
   const permissions = getModulePermissions(currentUser?.role || 'production', 'production');
 
-  // Create default milestones for a project
+  // Create default milestones for a project with enhanced duplicate prevention
   const createDefaultMilestones = async (projectId: string) => {
+    // Prevent duplicate creation attempts
+    if (creatingMilestonesFor.has(projectId)) {
+      console.log(`Milestone creation already in progress for project: ${projectId}`);
+      return;
+    }
+
+    // Check if milestones were already created in this session
+    if (milestonesCreated.has(projectId)) {
+      console.log(`Milestones already created for project: ${projectId}`);
+      return;
+    }
+
     try {
-      // Use the existing function from projectsService
+      // Mark as being processed
+      setCreatingMilestonesFor(prev => new Set(prev).add(projectId));
+      
+      // Double-check: fetch fresh milestones to ensure none were created by another process
+      const existingMilestones = await milestonesService.getMilestonesByProject(projectId);
+      const productionMilestones = existingMilestones.filter(m => m.module === 'production' || !m.module);
+      
+      if (productionMilestones.length > 0) {
+        console.log(`Production milestones already exist for project: ${projectId} (found ${productionMilestones.length})`);
+        // Store existing milestones
+        setProjectMilestones(prev => ({
+          ...prev,
+          [projectId]: productionMilestones
+        }));
+        setMilestonesCreated(prev => new Set(prev).add(projectId));
+        return;
+      }
+
+      // Final safety check: verify project still exists and needs milestones
+      const project = await projectsService.getProject(projectId);
+      if (!project || (project.productionData?.milestones && project.productionData.milestones.length > 0)) {
+        console.log(`Project ${projectId} no longer needs default milestones`);
+        setMilestonesCreated(prev => new Set(prev).add(projectId));
+        return;
+      }
+
+      // Create the default milestones
       await projectsService.createDefaultProductionMilestones(projectId);
+      console.log(`✅ Default production milestones created for project: ${projectId}`);
+      
+      // Fetch the newly created milestones and store them
+      const newMilestones = await milestonesService.getMilestonesByProject(projectId);
+      const newProductionMilestones = newMilestones.filter(m => m.module === 'production' || !m.module);
+      setProjectMilestones(prev => ({
+        ...prev,
+        [projectId]: newProductionMilestones
+      }));
+      
+      // Mark as completed
+      setMilestonesCreated(prev => new Set(prev).add(projectId));
     } catch (error) {
-      console.error('Error creating default milestones:', error);
+      console.error(`❌ Error creating default milestones for project ${projectId}:`, error);
+      // Don't mark as completed if there was an error, allow retry
+    } finally {
+      // Always remove from processing set
+      setCreatingMilestonesFor(prev => {
+        const updated = new Set(prev);
+        updated.delete(projectId);
+        return updated;
+      });
     }
   };
 
@@ -49,15 +116,14 @@ const ProductionModule: React.FC = () => {
         setLoading(true);
         const allProjects = await projectsService.getProjects();
 
-        // WIP: Projects in production status
-        const wipProjectsData = allProjects.filter(project => project.status === 'production');
-
-        // Create default milestones for projects that don't have them
-        for (const project of wipProjectsData) {
-          if (!project.productionData?.milestones || project.productionData.milestones.length === 0) {
-            await createDefaultMilestones(project.id!);
-          }
-        }
+        // WIP: Projects that should appear in Production
+        // This includes:
+        // 1. Projects with main status 'production'
+        // 2. Projects that have productionData but haven't moved to installation/completed yet
+        const wipProjectsData = allProjects.filter(project =>
+          project.status === 'production' ||
+          (project.productionData && project.status !== 'installation' && project.status !== 'completed')
+        );
 
         // History: Projects that have moved from production to installation or completed
         const historyProjectsData = allProjects.filter(project =>
@@ -70,7 +136,11 @@ const ProductionModule: React.FC = () => {
         // Load milestones for selected project
         if (selectedProject) {
           const milestonesData = await milestonesService.getMilestonesByProject(selectedProject);
-          setMilestones(milestonesData);
+          // Filter milestones based on current tab
+          const filteredMilestones = activeTab === 'installation'
+            ? milestonesData.filter(m => m.module === 'installation')
+            : milestonesData.filter(m => m.module === 'production' || !m.module); // Default to production for legacy milestones
+          setMilestones(filteredMilestones);
         } else {
           setMilestones([]);
         }
@@ -82,7 +152,46 @@ const ProductionModule: React.FC = () => {
     };
 
     loadData();
-  }, [selectedProject]);
+  }, [selectedProject, activeTab]); // Added activeTab to dependencies for milestone filtering
+
+  // Separate effect for creating default milestones
+  useEffect(() => {
+    const createMilestonesForNewProjects = async () => {
+      // Only run if we have WIP projects loaded
+      if (wipProjects.length === 0) return;
+
+      // Find projects that need default milestones
+      const projectsNeedingMilestones = wipProjects.filter(project => 
+        project.id && // Ensure project has an ID
+        !creatingMilestonesFor.has(project.id) && // Not currently being processed
+        !milestonesCreated.has(project.id) && // Not already processed
+        (!project.productionData?.milestones || project.productionData.milestones.length === 0) // No existing milestones
+      );
+
+      // Create milestones for qualifying projects (one at a time to prevent race conditions)
+      for (const project of projectsNeedingMilestones) {
+        if (project.id) {
+          await createDefaultMilestones(project.id);
+          // Small delay to prevent overwhelming the system
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+    };
+
+    createMilestonesForNewProjects();
+  }, [wipProjects, creatingMilestonesFor, milestonesCreated]); // Run when WIP projects change or processing state changes
+
+  // Cleanup stale milestone creation operations (timeout after 60 seconds)
+  useEffect(() => {
+    if (creatingMilestonesFor.size > 0) {
+      const timeoutId = setTimeout(() => {
+        console.warn('Cleaning up stale milestone creation operations:', Array.from(creatingMilestonesFor));
+        setCreatingMilestonesFor(new Set());
+      }, 60000); // 60 seconds timeout
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [creatingMilestonesFor]);
 
   const handleCreateMilestone = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,9 +203,11 @@ const ProductionModule: React.FC = () => {
       const milestoneData = {
         projectId: selectedProject,
         title: formData.title,
-        startDate: formData.startDate,
+        description: formData.description,
+        startDate: formData.startDate ? new Date(formData.startDate) : new Date(),
         assignedTo: formData.assignedTo,
-        status: 'pending' as const
+        status: 'pending' as const,
+        module: (activeTab === 'installation' ? 'installation' : 'production') as 'installation' | 'production'
       };
 
       await milestonesService.createMilestone(milestoneData);
@@ -109,7 +220,7 @@ const ProductionModule: React.FC = () => {
       setHasEditedMilestones(prev => ({ ...prev, [selectedProject]: true }));
 
       setShowMilestoneForm(false);
-      setFormData({ title: '', startDate: '', assignedTo: '' });
+      setFormData({ title: '', description: '', startDate: '', assignedTo: '' });
     } catch (error) {
       console.error('Error creating milestone:', error);
       alert('Failed to create milestone. Please try again.');
@@ -163,10 +274,14 @@ const ProductionModule: React.FC = () => {
 
       // Reload projects
       const allProjects = await projectsService.getProjects();
-      const wipProjectsData = allProjects.filter(project => project.status === 'production');
+      const wipProjectsData = allProjects.filter(project =>
+        project.status === 'production' ||
+        (project.productionData && project.status !== 'installation' && project.status !== 'completed')
+      );
       const historyProjectsData = allProjects.filter(project =>
         project.productionData && (project.status === 'installation' || project.status === 'completed')
       );
+
 
       setWipProjects(wipProjectsData);
       setHistoryProjects(historyProjectsData);
@@ -180,7 +295,8 @@ const ProductionModule: React.FC = () => {
     setEditingMilestone(milestone);
     setFormData({
       title: milestone.title,
-      startDate: milestone.startDate,
+      description: milestone.description || '',
+      startDate: milestone.startDate ? milestone.startDate.toISOString().split('T')[0] : '',
       assignedTo: milestone.assignedTo || ''
     });
     setShowEditMilestone(true);
@@ -195,7 +311,8 @@ const ProductionModule: React.FC = () => {
 
       const updateData = {
         title: formData.title,
-        startDate: formData.startDate,
+        description: formData.description,
+        startDate: formData.startDate ? new Date(formData.startDate) : new Date(),
         assignedTo: formData.assignedTo
       };
 
@@ -210,7 +327,7 @@ const ProductionModule: React.FC = () => {
 
       setShowEditMilestone(false);
       setEditingMilestone(null);
-      setFormData({ title: '', startDate: '', assignedTo: '' });
+      setFormData({ title: '', description: '', startDate: '', assignedTo: '' });
     } catch (error) {
       console.error('Error updating milestone:', error);
       alert('Failed to update milestone. Please try again.');
@@ -221,53 +338,69 @@ const ProductionModule: React.FC = () => {
 
 
 
-  const handleUpdateMilestoneStatus = async (milestoneId: string, status: Milestone['status']) => {
+
+
+  const handleCompleteProduction = async (projectId: string, deliveryDate?: Date) => {
+    if (!permissions.canEdit) {
+      alert('You do not have permission to complete production.');
+      return;
+    }
+
+    // Validate that DNE is completed before allowing production completion
     try {
-      await milestonesService.updateMilestone(milestoneId, {
-        status,
-        completedDate: status === 'completed' ? new Date().toISOString() : undefined
-      });
+      const project = await projectsService.getProject(projectId);
+      if (!project) {
+        alert('Project not found.');
+        return;
+      }
 
-      const updatedMilestones = await milestonesService.getMilestonesByProject(selectedProject);
-      setMilestones(updatedMilestones);
+      // Check if DNE is completed
+      if (!project.designData?.status || project.designData.status === 'pending') {
+        alert('Cannot complete production. Design & Engineering must be completed first.');
+        return;
+      }
+
+      if (!confirm('Mark this production as completed and move to installation?')) return;
+
+      // Use workflow service for automatic transition
+      await projectsService.updateProject(projectId, { status: 'installation' });
+      console.log('Project transitioned to installation');
+
+      // Reload projects
+      const allProjects = await projectsService.getProjects();
+      const wipProjectsData = allProjects.filter(project =>
+        project.status === 'production' ||
+        (project.productionData && project.status !== 'installation' && project.status !== 'completed')
+      );
+      const historyProjectsData = allProjects.filter(project =>
+        project.productionData && (project.status === 'installation' || project.status === 'completed')
+      );
+
+
+      setWipProjects(wipProjectsData);
+      setHistoryProjects(historyProjectsData);
+
+      alert('Production completed successfully and moved to installation with delivery date tracking!');
     } catch (error) {
-      console.error('Error updating milestone status:', error);
-      alert('Failed to update milestone status. Please try again.');
+      console.error('Error completing production:', error);
+      alert('Failed to complete production. Please try again.');
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'in-progress':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'completed':
-        return 'bg-green-100 text-green-800 border-green-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
+
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50">
-      <ModuleHeader
+    <>
+      <ModuleContainer
         title="Production"
         subtitle="Manage production milestones and manufacturing"
         icon={Factory}
         iconColor="text-white"
         iconBgColor="bg-gradient-to-r from-orange-500 to-orange-600"
+        className="bg-gradient-to-br from-orange-50 via-white to-amber-50"
+        maxWidth="7xl"
+        fullViewport={true}
       >
-        {selectedProject && (
-          <button
-            onClick={() => setShowMilestoneForm(true)}
-            className="flex items-center bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white px-4 py-2 rounded-xl transition-all duration-200 hover:shadow-lg hover:scale-105"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Milestone
-          </button>
-        )}
-      </ModuleHeader>
 
       {/* Content */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -294,6 +427,7 @@ const ProductionModule: React.FC = () => {
             >
               📊 History
             </button>
+
           </div>
         </div>
 
@@ -331,7 +465,7 @@ const ProductionModule: React.FC = () => {
                         <p className="text-gray-600 mb-3">{project.description}</p>
                       )}
                       <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-4">
-                        <span>Due: {new Date(project.completionDate).toLocaleDateString()}</span>
+                        <span>{formatDueDate(project.deliveryDate || project.completionDate)}</span>
                         <span>Progress: {project.progress || 0}%</span>
                       </div>
 
@@ -343,6 +477,40 @@ const ProductionModule: React.FC = () => {
                         ></div>
                       </div>
 
+                      {/* Milestone Creation Status */}
+                      {creatingMilestonesFor.has(project.id!) && (
+                        <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <div className="flex items-center text-blue-700">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                            <span className="text-sm font-medium">Creating default milestones...</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {milestonesCreated.has(project.id!) && !creatingMilestonesFor.has(project.id!) && (
+                        <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                          <div className="flex items-center text-green-700 mb-2">
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            <span className="text-sm font-medium"> Milestones Info</span>
+                          </div>
+                          {projectMilestones[project.id!] && projectMilestones[project.id!].length > 0 && (
+                            <div className="ml-6 space-y-1">
+                              {projectMilestones[project.id!].map((milestone, index) => (
+                                <div key={milestone.id || index} className="flex items-center text-xs text-green-600">
+                                  <div className="w-1.5 h-1.5 bg-green-400 rounded-full mr-2"></div>
+                                  <span>{milestone.title}</span>
+                                  {milestone.startDate && (
+                                    <span className="ml-2 text-green-500">
+                                      (starts {new Date(milestone.startDate).toLocaleDateString()})
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
 
 
 
@@ -351,11 +519,26 @@ const ProductionModule: React.FC = () => {
                       <div className="flex flex-wrap gap-2">
                         <button
                           onClick={() => setSelectedProject(project.id!)}
-                          className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
+                          disabled={creatingMilestonesFor.has(project.id!)}
+                          className={`px-3 py-1 rounded-lg text-sm transition-colors flex items-center ${
+                            creatingMilestonesFor.has(project.id!)
+                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                              : 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                          }`}
                         >
                           <Calendar className="w-4 h-4 mr-1" />
-                          Manage Milestones
+                          {creatingMilestonesFor.has(project.id!) ? 'Creating Milestones...' : 'Manage Milestones'}
                         </button>
+
+                        {permissions.canEdit && (
+                          <button
+                            onClick={() => handleCompleteProduction(project.id!, new Date())}
+                            className="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
+                          >
+                            <CheckCircle className="w-4 h-4 mr-1" />
+                            Complete Production
+                          </button>
+                        )}
 
                         {!permissions.canEdit && (
                           <div className="flex items-center text-gray-500 text-sm">
@@ -405,7 +588,7 @@ const ProductionModule: React.FC = () => {
                         <p className="text-gray-600 mb-3">{project.description}</p>
                       )}
                       <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-4">
-                        <span>Completed: {new Date(project.completionDate).toLocaleDateString()}</span>
+                        <span>{formatCompletionDate(project.deliveryDate || project.completionDate)}</span>
                         <span>Progress: {project.progress || 100}%</span>
                       </div>
 
@@ -432,8 +615,10 @@ const ProductionModule: React.FC = () => {
             )}
           </div>
         )}
+      </div>
+      </ModuleContainer>
 
-        {/* Milestones Management Modal */}
+      {/* Milestones Management Modal */}
         {selectedProject && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -503,16 +688,12 @@ const ProductionModule: React.FC = () => {
                           <div className="flex-1">
                             <div className="flex items-center space-x-3 mb-2">
                               <h5 className="font-medium text-gray-900">{milestone.title}</h5>
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                milestone.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                milestone.status === 'in-progress' ? 'bg-blue-100 text-blue-800' :
-                                'bg-gray-100 text-gray-800'
-                              }`}>
-                                {milestone.status}
-                              </span>
                             </div>
+                            {milestone.description && (
+                              <p className="text-gray-600 mb-2 text-sm">{milestone.description}</p>
+                            )}
                             <div className="flex items-center space-x-4 text-sm text-gray-500">
-                              <span>Start: {milestone.startDate}</span>
+                              <span>Start: {safeFormatDate(milestone.startDate)}</span>
                               {milestone.assignedTo && <span>Assigned: {milestone.assignedTo}</span>}
                             </div>
                           </div>
@@ -522,10 +703,21 @@ const ProductionModule: React.FC = () => {
                                 setSelectedMilestone(milestone.id!);
                                 setShowImageUpload(true);
                               }}
-                              className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                              title="Upload images"
+                              className={`relative p-2 rounded-lg transition-colors ${
+                                milestone.images && milestone.images.length > 0
+                                  ? 'text-green-600 bg-green-50 hover:bg-green-100'
+                                  : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+                              }`}
+                              title={`${milestone.images?.length || 0} image(s) - ${
+                                permissions.canEdit ? 'Click to manage' : 'Click to view (read-only)'
+                              }`}
                             >
                               <ImageIcon className="h-4 w-4" />
+                              {milestone.images && milestone.images.length > 0 && (
+                                <span className="absolute -top-1 -right-1 bg-green-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                                  {milestone.images.length}
+                                </span>
+                              )}
                             </button>
                             {permissions.canEdit && (
                               <>
@@ -534,7 +726,8 @@ const ProductionModule: React.FC = () => {
                                     setEditingMilestone(milestone);
                                     setFormData({
                                       title: milestone.title,
-                                      startDate: milestone.startDate,
+                                      description: milestone.description || '',
+                                      startDate: milestone.startDate ? milestone.startDate.toISOString().split('T')[0] : '',
                                       assignedTo: milestone.assignedTo || ''
                                     });
                                     setShowEditMilestone(true);
@@ -596,10 +789,29 @@ const ProductionModule: React.FC = () => {
                 <MilestoneImageUpload
                   milestoneId={selectedMilestone}
                   projectId={selectedProject}
-                  existingImages={[]} // TODO: Load existing images from milestone data
-                  onImagesUpdated={(images) => {
-                    // TODO: Update milestone with new images
-                    console.log('Images updated:', images);
+                  existingImages={(milestones.find(m => m.id === selectedMilestone)?.images || []).map((url, index) => ({
+                    id: `${selectedMilestone}-${index}`,
+                    url: url,
+                    caption: '',
+                    uploadedAt: new Date(),
+                    uploadedBy: 'Unknown'
+                  }))}
+                  permissions={permissions}
+                  onImagesUpdated={async (images) => {
+                    try {
+                      // Convert MilestoneImage[] back to string[] for storage
+                      const imageUrls = images.map(img => img.url);
+                      await milestonesService.updateMilestone(selectedMilestone, { images: imageUrls });
+
+                      // Reload milestones to reflect changes
+                      const updatedMilestones = await milestonesService.getMilestonesByProject(selectedProject);
+                      setMilestones(updatedMilestones);
+
+                      console.log('Milestone images updated successfully');
+                    } catch (error) {
+                      console.error('Error updating milestone images:', error);
+                      alert('Failed to update milestone images. Please try again.');
+                    }
                   }}
                 />
               </div>
@@ -665,39 +877,13 @@ const ProductionModule: React.FC = () => {
                         <div className="flex-1">
                           <div className="flex items-center justify-between mb-2">
                             <h4 className="text-lg font-semibold text-gray-900">{milestone.title}</h4>
-                            <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(milestone.status)}`}>
-                              {milestone.status.toUpperCase()}
-                            </span>
                           </div>
                           {milestone.description && (
                             <p className="text-gray-600 mb-3">{milestone.description}</p>
                           )}
                           <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-4">
-                            <span>Due: {new Date(milestone.dueDate).toLocaleDateString()}</span>
+                            <span>{formatDueDate(milestone.startDate)}</span>
                             {milestone.assignedTo && <span>Assigned to: {milestone.assignedTo}</span>}
-                            {milestone.completedDate && (
-                              <span>Completed: {new Date(milestone.completedDate).toLocaleDateString()}</span>
-                            )}
-                          </div>
-
-                          {/* Status Update Buttons */}
-                          <div className="flex flex-wrap gap-2 mb-4">
-                            <button
-                              onClick={() => handleUpdateMilestoneStatus(milestone.id!, 'in-progress')}
-                              disabled={milestone.status === 'in-progress'}
-                              className="bg-blue-100 hover:bg-blue-200 disabled:bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
-                            >
-                              <Clock className="w-4 h-4 mr-1" />
-                              In Progress
-                            </button>
-                            <button
-                              onClick={() => handleUpdateMilestoneStatus(milestone.id!, 'completed')}
-                              disabled={milestone.status === 'completed'}
-                              className="bg-green-100 hover:bg-green-200 disabled:bg-green-50 text-green-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
-                            >
-                              <CheckCircle className="w-4 h-4 mr-1" />
-                              Complete
-                            </button>
                           </div>
                         </div>
                         <div className="flex items-center space-x-2 ml-4">
@@ -727,7 +913,7 @@ const ProductionModule: React.FC = () => {
         {showMilestoneForm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">New Milestone</h3>
+              {/* <h3 className="text-xl font-semibold text-gray-900 mb-4">New Milestone</h3> */}
               <form onSubmit={handleCreateMilestone} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
@@ -742,7 +928,17 @@ const ProductionModule: React.FC = () => {
                   />
                 </div>
 
-
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
+                    onChange={handleInputChange}
+                    rows={3}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    placeholder="Enter milestone description (optional)"
+                  />
+                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
@@ -808,7 +1004,17 @@ const ProductionModule: React.FC = () => {
                   />
                 </div>
 
-
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
+                    onChange={handleInputChange}
+                    rows={3}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    placeholder="Enter milestone description (optional)"
+                  />
+                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
@@ -840,7 +1046,7 @@ const ProductionModule: React.FC = () => {
                     onClick={() => {
                       setShowEditMilestone(false);
                       setEditingMilestone(null);
-                      setFormData({ title: '', startDate: '', assignedTo: '' });
+                      setFormData({ title: '', description: '', startDate: '', assignedTo: '' });
                     }}
                     className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-xl transition-colors"
                   >
@@ -858,8 +1064,7 @@ const ProductionModule: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </>
   );
 };
 

@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Hammer, Camera, CheckCircle, Image, Lock, ArrowRight, Calendar, Clock } from 'lucide-react';
-import ModuleHeader from '../common/ModuleHeader';
+import ModuleContainer from '../common/ModuleContainer';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectsService, fileService, type Project } from '../../services/firebaseService';
 import { workflowService } from '../../services/workflowService';
 import { getModulePermissions } from '../../utils/permissions';
+import { safeFormatDate, formatDueDate, formatCompletionDate } from '../../utils/dateUtils';
 import { firebaseLogin } from '../../services/firebaseAuth';
+import ImageModal from '../common/ImageModal';
 
 const InstallationModule: React.FC = () => {
   const { currentUser, isFirebaseMode, isLocalMode } = useAuth();
@@ -21,28 +23,21 @@ const InstallationModule: React.FC = () => {
   const [progressUpdate, setProgressUpdate] = useState('');
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<Array<{
+    id: string;
+    url: string;
+    caption?: string;
+    uploadedAt?: Date | string;
+    uploadedBy?: string;
+  }>>([]);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
 
   // Get user permissions
   const permissions = getModulePermissions(currentUser?.role || 'installation', 'installation');
 
-  // Force Firebase authentication for photo uploads
-  const forceFirebaseLogin = async () => {
-    try {
-      // Use demo installation credentials
-      const installationEmail = 'installation@mysteel.com';
-      const installationPassword = 'MS2024!Install#Super';
 
-      console.log('🔥 Attempting Firebase login...');
-      await firebaseLogin(installationEmail, installationPassword);
-      console.log('✅ Firebase login successful!');
-      alert('Successfully logged in with Firebase! You can now upload photos.');
-      window.location.reload(); // Refresh to update auth state
-    } catch (error) {
-      console.error('❌ Firebase login failed:', error);
-      alert('Firebase login failed. Please check console for details.');
-    }
-  };
 
   // Status color helper
   const getStatusColor = (status: string) => {
@@ -69,8 +64,13 @@ const InstallationModule: React.FC = () => {
         setLoading(true);
         const allProjects = await projectsService.getProjects();
 
-        // WIP: Projects in installation status
-        const wipProjectsData = allProjects.filter(project => project.status === 'installation');
+        // WIP: Projects that should appear in Installation
+        // This includes:
+        // 1. Projects with main status 'installation'
+        // 2. Projects that have installationData (flowed from DNE partial completion)
+        const wipProjectsData = allProjects.filter(project =>
+          project.status === 'installation' || project.installationData
+        );
 
         // History: Completed projects
         const historyProjectsData = allProjects.filter(project => project.status === 'completed');
@@ -88,8 +88,10 @@ const InstallationModule: React.FC = () => {
 
     // Set up real-time listener for project updates
     const unsubscribe = projectsService.onProjectsChange ? projectsService.onProjectsChange((projects) => {
-      // Filter for installation projects
-      const wipProjectsData = projects.filter(project => project.status === 'installation');
+      // Filter for installation projects - SAME LOGIC AS INITIAL LOAD
+      const wipProjectsData = projects.filter(project =>
+        project.status === 'installation' || project.installationData
+      );
       const historyProjectsData = projects.filter(project => project.status === 'completed');
 
       setWipProjects(wipProjectsData);
@@ -114,29 +116,20 @@ const InstallationModule: React.FC = () => {
     try {
       setUploadingPhotos(true);
 
-      // Debug logging
+
+
+      // Check user authentication (Firestore-based)
+      if (!currentUser) {
+        console.error('❌ Not authenticated!');
+        alert('You must be logged in to upload photos.');
+        return;
+      }
+
       console.log('🔍 Upload Debug Info:');
       console.log('Current User:', currentUser);
       console.log('User Role:', currentUser.role);
       console.log('Permissions:', permissions);
       console.log('Selected Project:', selectedProject.id);
-
-      // Check Firebase Auth state
-      const { auth } = await import('../../config/firebase');
-      console.log('🔥 Firebase Auth State:');
-      console.log('Auth current user:', auth?.currentUser);
-      console.log('Auth UID:', auth?.currentUser?.uid);
-      console.log('Auth email:', auth?.currentUser?.email);
-      console.log('🔧 Auth Mode:');
-      console.log('Firebase Mode:', isFirebaseMode);
-      console.log('Local Mode:', isLocalMode);
-
-      // If not authenticated with Firebase, show error
-      if (!auth?.currentUser) {
-        console.error('❌ Not authenticated with Firebase Auth!');
-        alert('You are not authenticated with Firebase. Please log in with a Firebase account to upload photos.');
-        return;
-      }
       const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
 
       const uploadPromises = Array.from(photos).map(async (photo) => {
@@ -162,12 +155,17 @@ const InstallationModule: React.FC = () => {
 
       await projectsService.updateProject(selectedProject.id!, {
         files: [...currentFiles, ...uploadedUrls],
-        photoMetadata: [...(selectedProject.photoMetadata || []), ...photoMetadata]
+        photoMetadata: [...(selectedProject.photoMetadata || []), ...photoMetadata.map(meta => ({
+          ...meta,
+          uploadedAt: new Date(meta.uploadedAt)
+        }))]
       });
 
       // Reload projects
       const allProjects = await projectsService.getProjects();
-      const wipProjectsData = allProjects.filter(project => project.status === 'installation');
+      const wipProjectsData = allProjects.filter(project =>
+        project.status === 'installation' || project.installationData
+      );
       setWipProjects(wipProjectsData);
 
       setShowPhotoUpload(false);
@@ -197,13 +195,18 @@ const InstallationModule: React.FC = () => {
       const updatedNotes = currentNotes ? `${currentNotes}\n${newNote}` : newNote;
 
       await projectsService.updateProject(selectedProject.id!, {
-        'installationData.notes': updatedNotes,
-        'installationData.lastModified': new Date()
+        installationData: {
+          ...selectedProject.installationData,
+          notes: updatedNotes,
+          lastModified: new Date()
+        }
       });
 
       // Reload projects
       const allProjects = await projectsService.getProjects();
-      const wipProjectsData = allProjects.filter(project => project.status === 'installation');
+      const wipProjectsData = allProjects.filter(project =>
+        project.status === 'installation' || project.installationData
+      );
       setWipProjects(wipProjectsData);
 
       setShowProgressModal(false);
@@ -230,7 +233,9 @@ const InstallationModule: React.FC = () => {
 
       // Reload projects
       const allProjects = await projectsService.getProjects();
-      const wipProjectsData = allProjects.filter(project => project.status === 'installation');
+      const wipProjectsData = allProjects.filter(project =>
+        project.status === 'installation' || project.installationData
+      );
       const historyProjectsData = allProjects.filter(project => project.status === 'completed');
 
       setWipProjects(wipProjectsData);
@@ -249,15 +254,31 @@ const InstallationModule: React.FC = () => {
       return;
     }
 
-    if (!confirm('Mark this installation as completed?')) return;
-
+    // Validate that Production is completed before allowing installation completion
     try {
+      const project = await projectsService.getProject(projectId);
+      if (!project) {
+        alert('Project not found.');
+        return;
+      }
+
+      // Check if Production is completed
+      if (!project.productionData?.completedAt) {
+        alert('Cannot complete installation. Production must be completed first.');
+        return;
+      }
+
+      if (!confirm('Mark this installation as completed?')) return;
+
       // Use workflow service for automatic completion
-      await workflowService.transitionInstallationToCompleted(projectId, deliveryDate);
+      await projectsService.updateProject(projectId, { status: 'completed' });
+      console.log('Project transitioned to completed');
 
       // Reload projects
       const allProjects = await projectsService.getProjects();
-      const wipProjectsData = allProjects.filter(project => project.status === 'installation');
+      const wipProjectsData = allProjects.filter(project =>
+        project.status === 'installation' || project.installationData
+      );
       const historyProjectsData = allProjects.filter(project => project.status === 'completed');
 
       setWipProjects(wipProjectsData);
@@ -273,27 +294,19 @@ const InstallationModule: React.FC = () => {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-pink-50">
-      <ModuleHeader
+    <>
+      <ModuleContainer
         title="Installation"
         subtitle="Manage installation progress and photo uploads"
         icon={Hammer}
         iconColor="text-white"
         iconBgColor="bg-gradient-to-r from-purple-500 to-purple-600"
+        className="bg-gradient-to-br from-purple-50 via-white to-pink-50"
+        maxWidth="6xl"
+        fullViewport={true}
       >
-        {selectedProject && (
-          <button
-            onClick={() => setShowPhotoUpload(true)}
-            className="flex items-center bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white px-4 py-2 rounded-xl transition-all duration-200 hover:shadow-lg hover:scale-105"
-          >
-            <Camera className="w-4 h-4 mr-2" />
-            Upload Photos
-          </button>
-        )}
-      </ModuleHeader>
-
       {/* Content */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="flex-1 flex flex-col min-h-0">
         {/* Tab Navigation */}
         <div className="bg-white/80 backdrop-blur-sm rounded-xl p-1 mb-6 shadow-sm border border-white/50">
           <div className="flex">
@@ -349,7 +362,7 @@ const InstallationModule: React.FC = () => {
                         <p className="text-gray-600 mb-3">{project.description}</p>
                       )}
                       <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
-                        <span>Due: {new Date(project.completionDate).toLocaleDateString()}</span>
+                        <span>{formatDueDate(project.deliveryDate || project.completionDate)}</span>
                         <span>Progress: {project.progress || 0}%</span>
                       </div>
 
@@ -366,8 +379,18 @@ const InstallationModule: React.FC = () => {
                         <div className="mb-4 p-3 bg-purple-50 rounded-lg">
                           <button
                             onClick={() => {
-                              setSelectedProject(project);
-                              setShowPhotoViewer(true);
+                              // Prepare images for modal
+                              const images = project.files?.map((url: string, index: number) => ({
+                                id: `img-${index}`,
+                                url,
+                                caption: `Installation Photo ${index + 1}`,
+                                uploadedAt: project.photoMetadata?.[index]?.uploadedAt || new Date(),
+                                uploadedBy: project.photoMetadata?.[index]?.uploadedBy || 'Unknown'
+                              })) || [];
+                              
+                              setSelectedImages(images);
+                              setSelectedImageIndex(0);
+                              setShowImageModal(true);
                             }}
                             className="bg-purple-100 hover:bg-purple-200 text-purple-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
                           >
@@ -445,7 +468,7 @@ const InstallationModule: React.FC = () => {
                         <p className="text-gray-600 mb-3">{project.description}</p>
                       )}
                       <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
-                        <span>Completed: {new Date(project.completionDate).toLocaleDateString()}</span>
+                        <span>{formatCompletionDate(project.deliveryDate || project.completionDate)}</span>
                       </div>
 
                       {/* Photo Gallery for History */}
@@ -453,8 +476,18 @@ const InstallationModule: React.FC = () => {
                         <div className="mb-4 p-3 bg-green-50 rounded-lg">
                           <button
                             onClick={() => {
-                              setSelectedProject(project);
-                              setShowPhotoViewer(true);
+                              // Prepare images for modal
+                              const images = project.files?.map((url: string, index: number) => ({
+                                id: `img-${index}`,
+                                url,
+                                caption: `Installation Photo ${index + 1}`,
+                                uploadedAt: project.photoMetadata?.[index]?.uploadedAt || new Date(),
+                                uploadedBy: project.photoMetadata?.[index]?.uploadedBy || 'Unknown'
+                              })) || [];
+                              
+                              setSelectedImages(images);
+                              setSelectedImageIndex(0);
+                              setShowImageModal(true);
                             }}
                             className="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
                           >
@@ -510,7 +543,7 @@ const InstallationModule: React.FC = () => {
 
                     selectedProject.files.forEach((fileUrl, index) => {
                       const metadata = selectedProject.photoMetadata?.[index];
-                      const date = metadata?.date || 'Unknown Date';
+                      const date = metadata?.uploadedAt?.toDateString() || 'Unknown Date';
 
                       if (!photoGroups[date]) {
                         photoGroups[date] = { files: [], metadata: [] };
@@ -525,7 +558,7 @@ const InstallationModule: React.FC = () => {
                           <div key={date} className="border border-gray-200 rounded-lg p-4">
                             <div className="flex items-center justify-between mb-3">
                               <h4 className="font-medium text-gray-900">
-                                {new Date(date).toLocaleDateString()}
+                                {safeFormatDate(date)}
                               </h4>
                                 <span className="text-sm text-gray-500">
                                   {group.files.length} photo{group.files.length !== 1 ? 's' : ''}
@@ -539,7 +572,20 @@ const InstallationModule: React.FC = () => {
                                       src={fileUrl}
                                       alt={`Installation photo ${index + 1}`}
                                       className="w-full h-32 object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                                      onClick={() => window.open(fileUrl, '_blank')}
+                                      onClick={() => {
+                                        // Prepare all photos for modal
+                                        const allPhotos = group.files.map((url: string, idx: number) => ({
+                                          id: `date-${date}-${idx}`,
+                                          url,
+                                          caption: `Installation Photo ${idx + 1}`,
+                                          uploadedAt: group.metadata[idx]?.uploadedAt || new Date(),
+                                          uploadedBy: group.metadata[idx]?.uploadedBy || 'Unknown'
+                                        }));
+                                        
+                                        setSelectedImages(allPhotos);
+                                        setSelectedImageIndex(index);
+                                        setShowImageModal(true);
+                                      }}
                                       onError={(e) => {
                                         (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlPC90ZXh0Pjwvc3ZnPg==';
                                       }}
@@ -632,9 +678,11 @@ const InstallationModule: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+      </ModuleContainer>
 
-        {/* Progress Update Modal */}
-        {showProgressModal && selectedProject && (
+      {/* Progress Update Modal */}
+      {showProgressModal && selectedProject && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
               <h3 className="text-xl font-semibold text-gray-900 mb-4">
@@ -728,7 +776,7 @@ const InstallationModule: React.FC = () => {
                             <div key={date} className="border border-gray-200 rounded-lg p-4">
                               <h4 className="text-md font-semibold text-gray-800 mb-3 flex items-center">
                                 <Calendar className="w-5 h-5 mr-2 text-purple-600" />
-                                {new Date(date).toLocaleDateString('en-US', {
+                                {safeFormatDate(date, 'Unknown Date', {
                                   weekday: 'long',
                                   year: 'numeric',
                                   month: 'long',
@@ -758,7 +806,20 @@ const InstallationModule: React.FC = () => {
                                             src={photo.url}
                                             alt={`Installation photo ${photoIndex + 1}`}
                                             className="w-full h-32 object-cover rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                                            onClick={() => window.open(photo.url, '_blank')}
+                                            onClick={() => {
+                                              // Prepare all photos for modal
+                                              const allPhotos = milestonePhotos.map((p: any, idx: number) => ({
+                                                id: `milestone-${milestone}-${idx}`,
+                                                url: p.url,
+                                                caption: `${milestone === 'General' ? 'General Photo' : `Milestone: ${milestone}`} ${idx + 1}`,
+                                                uploadedAt: p.uploadedAt || new Date(),
+                                                uploadedBy: p.uploadedBy || 'Unknown'
+                                              }));
+                                              
+                                              setSelectedImages(allPhotos);
+                                              setSelectedImageIndex(photoIndex);
+                                              setShowImageModal(true);
+                                            }}
                                           />
                                           <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
                                             <div className="opacity-0 group-hover:opacity-100 transition-opacity">
@@ -794,7 +855,20 @@ const InstallationModule: React.FC = () => {
                             src={fileUrl}
                             alt={`Installation photo ${index + 1}`}
                             className="w-full h-32 object-cover rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                            onClick={() => window.open(fileUrl, '_blank')}
+                            onClick={() => {
+                              // Prepare all photos for modal
+                              const allPhotos = selectedProject.files.map((url: string, idx: number) => ({
+                                id: `fallback-${idx}`,
+                                url,
+                                caption: `Installation Photo ${idx + 1}`,
+                                uploadedAt: new Date(),
+                                uploadedBy: 'Unknown'
+                              }));
+                              
+                              setSelectedImages(allPhotos);
+                              setSelectedImageIndex(index);
+                              setShowImageModal(true);
+                            }}
                           />
                           <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity">
@@ -817,8 +891,16 @@ const InstallationModule: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
-    </div>
+
+        {/* Image Modal */}
+        <ImageModal
+          isOpen={showImageModal}
+          onClose={() => setShowImageModal(false)}
+          images={selectedImages}
+          initialIndex={selectedImageIndex}
+          title="Installation Photos"
+        />
+    </>
   );
 };
 

@@ -16,7 +16,6 @@ const firebaseConfig = {
 
 // Development mode flag
 export const isDevelopmentMode = import.meta.env.DEV;
-export const useLocalAuth = isDevelopmentMode && import.meta.env.VITE_USE_LOCAL_AUTH === 'true';
 
 // Initialize Firebase
 let app: any = null;
@@ -30,7 +29,9 @@ try {
   db = getFirestore(app);
   storage = getStorage(app);
 
-  console.log('🔥 Firebase initialized successfully');
+  if (isDevelopmentMode) {
+    console.log('🔥 Firebase initialized successfully');
+  }
 } catch (error) {
   console.error('❌ Firebase initialization failed:', error);
   console.log('🔄 Falling back to local development mode');
@@ -40,87 +41,69 @@ try {
 export { auth, db, storage };
 
 // Development environment configuration
-if (isDevelopmentMode) {
-  console.log('🔧 Development mode enabled');
-
+if (isDevelopmentMode && typeof window !== 'undefined') {
   // Enable global testing mode function
-  if (typeof window !== 'undefined') {
-    (window as any).enableTestingMode = () => {
-      console.log('🧪 Testing mode enabled - bypassing authentication');
-      localStorage.setItem('testingMode', 'true');
-      localStorage.setItem('currentUser', JSON.stringify({
-        uid: 'test-admin-001',
-        email: 'admin@warehouseracking.my',
-        role: 'admin',
-        name: 'Test Admin User'
-      }));
-      window.location.reload();
-    };
+  (window as any).enableTestingMode = () => {
+    console.log('🧪 Testing mode enabled - bypassing authentication');
+    localStorage.setItem('testingMode', 'true');
+    localStorage.setItem('currentUser', JSON.stringify({
+      uid: 'test-admin-001',
+      email: 'admin@warehouseracking.my',
+      role: 'admin',
+      name: 'Test Admin User'
+    }));
+    window.location.reload();
+  };
 
-    (window as any).disableTestingMode = () => {
-      console.log('🔒 Testing mode disabled');
-      localStorage.removeItem('testingMode');
-      localStorage.removeItem('currentUser');
-      window.location.reload();
-    };
+  (window as any).disableTestingMode = () => {
+    console.log('🔒 Testing mode disabled');
+    localStorage.removeItem('testingMode');
+    localStorage.removeItem('currentUser');
+    window.location.reload();
+  };
 
-    // Add data integrity checker function
-    (window as any).checkDataIntegrity = async () => {
-      console.log('🔍 Starting data integrity check...');
-      try {
-        const { DataIntegrityChecker } = await import('../utils/dataIntegrityChecker');
-        const checker = new DataIntegrityChecker();
-        const results = await checker.performFullIntegrityCheck();
+  // Add function to run comprehensive Firebase diagnostics
+  (window as any).runFirebaseDiagnostics = async () => {
+    try {
+      const { default: runFirebaseDiagnostics } = await import('../utils/firebaseDiagnostics');
+      return await runFirebaseDiagnostics();
+    } catch (error) {
+      console.error('❌ Diagnostics failed:', error);
+      return { error: error.message };
+    }
+  };
 
-        console.log('\n🎯 DATA INTEGRITY CHECK COMPLETED');
-        console.log('Results available in browser console and returned object');
-        return results;
-      } catch (error) {
-        console.error('❌ Data integrity check failed:', error);
-        return { error: error.message };
-      }
-    };
+  // Add data verification function (READ-ONLY)
+  (window as any).verifyExistingData = async () => {
+    try {
+      const { verifyExistingData } = await import('../utils/firestoreDataViewer');
+      return await verifyExistingData();
+    } catch (error) {
+      console.error('❌ Data verification failed:', error);
+      return { error: error.message };
+    }
+  };
 
-    // Add data verification function (READ-ONLY)
-    (window as any).verifyExistingData = async () => {
-      try {
-        const { verifyExistingData } = await import('../utils/firestoreDataViewer');
-        return await verifyExistingData();
-      } catch (error) {
-        console.error('❌ Data verification failed:', error);
-        return { error: error.message };
-      }
-    };
+  // Add debug project function
+  (window as any).debugProject = async (projectId?: string) => {
+    try {
+      const { debugProject } = await import('../utils/debugProject');
+      return await debugProject(projectId);
+    } catch (error) {
+      console.error('❌ Debug project failed:', error);
+      return { error: error.message };
+    }
+  };
 
-    // Add quick data check function
-    (window as any).quickDataCheck = async () => {
-      try {
-        const { quickDataCheck } = await import('../utils/quickDataCheck');
-        return await quickDataCheck();
-      } catch (error) {
-        console.error('❌ Quick data check failed:', error);
-        return { error: error.message };
-      }
-    };
-
-    // Add data seeding functions
-    (window as any).seedTestData = async () => {
-      try {
-        const { seedTestData } = await import('../utils/dataSeed');
-        return await seedTestData();
-      } catch (error) {
-        console.error('❌ Data seeding failed:', error);
-        return { error: error.message };
-      }
-    };
-
+  // Only show development functions info if console is open or explicitly requested
+  if (localStorage.getItem('showDevFunctions') === 'true') {
+    console.log('🔧 Development mode enabled');
     console.log('🧪 Development functions available:');
     console.log('  - enableTestingMode() - Bypass authentication');
     console.log('  - disableTestingMode() - Re-enable authentication');
+    console.log('  - runFirebaseDiagnostics() - Run comprehensive Firebase diagnostics');
     console.log('  - verifyExistingData() - View existing Firestore data (READ-ONLY)');
-    console.log('  - quickDataCheck() - Quick overview of Firestore data');
-    console.log('  - seedTestData() - Create sample data for testing');
-    console.log('  - checkDataIntegrity() - Run comprehensive data audit and repair');
+    console.log('  - debugProject(projectId?) - Debug specific project or all projects');
   }
 }
 

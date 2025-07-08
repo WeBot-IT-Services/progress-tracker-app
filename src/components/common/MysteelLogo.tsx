@@ -1,70 +1,47 @@
 import React from 'react';
+import logoImage from '../../assets/MYSTEEL定稿 (3).png';
 
 interface MysteelLogoProps {
-  size?: 'sm' | 'md' | 'lg' | 'xl';
-  variant?: 'icon' | 'full' | 'text';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'large';
+  variant?: 'icon' | 'full' | 'text' | 'header' | 'login';
   className?: string;
+  showText?: boolean; // New prop to control text display
+  onClick?: () => void; // New prop for click handler
 }
 
 const MysteelLogo: React.FC<MysteelLogoProps> = ({ 
   size = 'md', 
   variant = 'icon',
-  className = '' 
+  className = '',
+  showText = true,
+  onClick
 }) => {
   const sizeClasses = {
-    sm: 'w-8 h-8',
-    md: 'w-12 h-12',
-    lg: 'w-16 h-16',
-    xl: 'w-24 h-24'
+    xs: 'w-8 h-8',
+    sm: 'w-12 h-12',
+    md: 'w-16 h-16',
+    lg: 'w-20 h-20',
+    xl: 'w-24 h-24',
+    '2xl': 'w-32 h-32',
+    'large': 'w-32 h-32'
   };
 
-  const iconSizes = {
-    sm: 'w-4 h-4',
-    md: 'w-6 h-6',
-    lg: 'w-8 h-8',
-    xl: 'w-12 h-12'
-  };
-
-  // Professional construction/steel industry logo SVG
-  const LogoIcon = () => (
-    <svg 
-      viewBox="0 0 100 100" 
-      className={iconSizes[size]}
-      fill="none" 
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      {/* Steel beam structure */}
-      <g fill="currentColor">
-        {/* Main vertical beam */}
-        <rect x="45" y="10" width="10" height="80" rx="2" />
-        
-        {/* Horizontal beams */}
-        <rect x="20" y="25" width="60" height="8" rx="2" />
-        <rect x="25" y="45" width="50" height="8" rx="2" />
-        <rect x="30" y="65" width="40" height="8" rx="2" />
-        
-        {/* Support struts */}
-        <rect x="35" y="30" width="6" height="20" rx="1" transform="rotate(45 38 40)" />
-        <rect x="59" y="30" width="6" height="20" rx="1" transform="rotate(-45 62 40)" />
-        
-        {/* Base foundation */}
-        <rect x="15" y="85" width="70" height="12" rx="3" />
-        
-        {/* Rivets/bolts */}
-        <circle cx="25" cy="29" r="2" />
-        <circle cx="75" cy="29" r="2" />
-        <circle cx="30" cy="49" r="2" />
-        <circle cx="70" cy="49" r="2" />
-        <circle cx="35" cy="69" r="2" />
-        <circle cx="65" cy="69" r="2" />
-      </g>
-    </svg>
+  // Logo Image Component
+  const LogoImage = () => (
+    <img
+      src={logoImage}
+      alt="Mysteel Logo"
+      className="w-full h-full object-contain select-none"
+    />
   );
 
   if (variant === 'icon') {
     return (
-      <div className={`${sizeClasses[size]} ${className} flex items-center justify-center bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 rounded-xl shadow-lg text-white`}>
-        <LogoIcon />
+      <div 
+        className={`${sizeClasses[size]} ${className} flex items-center justify-center p-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+        onClick={onClick}
+      >
+        <LogoImage />
       </div>
     );
   }
@@ -72,35 +49,80 @@ const MysteelLogo: React.FC<MysteelLogoProps> = ({
   if (variant === 'text') {
     return (
       <div className={`flex items-center space-x-3 ${className}`}>
-        <div className={`${sizeClasses[size]} flex items-center justify-center bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 rounded-xl shadow-lg text-white`}>
-          <LogoIcon />
+        <div className={`${sizeClasses[size]} flex items-center justify-center p-1.5 bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden flex-shrink-0`}>
+          <LogoImage />
         </div>
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Progress Tracker</h1>
-          <p className="text-sm text-gray-600">Mysteel Construction</p>
-        </div>
+        {showText && (
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold text-gray-900 leading-tight">Progress Tracker</h1>
+            {/* <p className="text-xs text-gray-600 font-medium leading-tight">Mysteel Construction Management</p> */}
+          </div>
+        )}
       </div>
     );
   }
 
   if (variant === 'full') {
     return (
+      <div className={`text-center space-y-6 ${className}`}>
+        <div className={`${sizeClasses[size]} mx-auto flex items-center justify-center p-4 bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg border border-white/20 overflow-hidden`}>
+          <LogoImage />
+        </div>
+        {showText && (
+          <div className="space-y-2">
+            <h1 className="text-3xl md:text-4xl font-bold text-white leading-tight tracking-tight">
+              <span className="bg-gradient-to-r from-blue-200 via-purple-200 to-indigo-200 bg-clip-text text-transparent drop-shadow-sm">
+                Progress
+              </span>
+              <br />
+              <span className="text-white drop-shadow-md">Tracker</span>
+            </h1>
+            {/* <p className="text-blue-100/90 text-base md:text-lg font-medium tracking-wide">
+              Mysteel Construction Management
+            </p> */}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (variant === 'header') {
+    return (
+      <div className={`flex items-center space-x-2 ${className}`}>
+        <div className={`${sizeClasses[size]} flex items-center justify-center p-1 bg-white rounded-lg overflow-hidden flex-shrink-0`}>
+          <LogoImage />
+        </div>
+        {showText && (
+          <div className="min-w-0">
+            <h1 className="text-base font-bold text-gray-900 leading-none">Progress Tracker</h1>
+            <p className="text-xs text-gray-500 font-medium leading-none mt-0.5">Mysteel Construction</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (variant === 'login') {
+    return (
       <div className={`text-center space-y-4 ${className}`}>
-        <div className={`${sizeClasses[size]} mx-auto flex items-center justify-center bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 rounded-3xl shadow-2xl text-white`}>
-          <LogoIcon />
+        <div className={`${sizeClasses[size]} mx-auto flex items-center justify-center p-3 bg-white rounded-2xl shadow-xl border-2 border-blue-100 overflow-hidden`}>
+          <LogoImage />
         </div>
-        <div>
-          <h1 className="text-4xl font-bold text-white">
-            <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent">
-              Progress
-            </span>
-            <br />
-            <span className="text-white">Tracker</span>
-          </h1>
-          <p className="text-blue-200 text-lg font-medium mt-2">
-            Mysteel Construction Management
-          </p>
-        </div>
+        {showText && (
+          <div className="space-y-1">
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 leading-tight">
+              <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                Progress Tracker
+              </span>
+            </h1>
+            <p className="text-sm md:text-base text-gray-600 font-medium">
+              Mysteel Construction Management
+            </p>
+            <p className="text-xs text-gray-500">
+              Secure Project Management System
+            </p>
+          </div>
+        )}
       </div>
     );
   }

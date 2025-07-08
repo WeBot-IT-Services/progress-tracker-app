@@ -50,15 +50,27 @@ A comprehensive project management system for Mysteel Construction with role-bas
    http://localhost:5173
    ```
 
-## 🔐 Demo Credentials
+## 🔐 Demo Access
 
-Use these credentials to test different roles:
+### Quick Demo Access Buttons
+The login page includes Quick Demo Access buttons for immediate testing:
 
-- **Admin**: admin@mysteer.com / WR2024
-- **Sales**: sales@mysteer.com / WR2024  
-- **Designer**: design@mysteer.com / WR2024
-- **Production**: production@mysteer.com / WR2024
-- **Installation**: installation@mysteer.com / WR2024
+- **👑 Admin** (A0001) - Full system access including Admin Panel
+- **💼 Sales** (S0001) - Sales module editing, other modules view-only
+- **🎨 Design** (D0001) - Design & Engineering editing, other modules view-only
+- **🏭 Production** (P0001) - Production module editing, other modules view-only
+- **🔧 Installation** (I0001) - Installation module editing, other modules view-only
+
+### Manual Login Credentials
+You can also login manually with these Firebase credentials:
+
+- **Admin**: admin@mysteel.com / WR2024
+- **Sales**: sales@mysteel.com / WR2024
+- **Designer**: design@mysteel.com / WR2024
+- **Production**: production@mysteel.com / WR2024
+- **Installation**: installation@mysteel.com / WR2024
+
+**Note**: Demo users must be created in Firebase Authentication. See `scripts/setup-firebase-demo-users.md` for setup instructions.
 
 ## 🏗️ Project Structure
 

@@ -46,12 +46,12 @@ async function testUpdateMechanism() {
         console.log(`   • ${name}`);
       });
       
-      // Check for version 3.1.0 caches
-      const v31Caches = cacheNames.filter(name => name.includes('v3.1.0'));
-      if (v31Caches.length > 0) {
-        console.log('✅ Version 3.1.0 caches found - seamless update mechanism active');
+      // Check for version 3.13.0 caches
+      const v313Caches = cacheNames.filter(name => name.includes('v3.13.0'));
+      if (v313Caches.length > 0) {
+        console.log('✅ Version 3.13.0 caches found - seamless update mechanism active');
       } else {
-        console.log('⚠️ No version 3.1.0 caches found - may need refresh');
+        console.log('⚠️ No version 3.13.0 caches found - may need refresh');
       }
     } catch (error) {
       console.error('❌ Cache check error:', error);
@@ -129,7 +129,7 @@ async function testUpdateMechanism() {
   
   // Test 6: Version Information
   console.log('\n📋 Test 6: Version Information');
-  console.log(`   App Version: 3.1.0`);
+  console.log(`   App Version: 3.13.0`);
   console.log(`   Build Timestamp: ${Date.now()}`);
   console.log(`   User Agent: ${navigator.userAgent}`);
   console.log(`   Online Status: ${navigator.onLine ? 'Online' : 'Offline'}`);
@@ -138,7 +138,7 @@ async function testUpdateMechanism() {
   console.log('\n🎯 Test Summary');
   console.log('===============');
   console.log('✅ Seamless Update Mechanism is active');
-  console.log('✅ Service Worker with version 3.1.0 deployed');
+  console.log('✅ Service Worker with version 3.13.0 deployed');
   console.log('✅ Background cache management working');
   console.log('✅ No visible page refreshes');
   console.log('✅ User state preservation enabled');

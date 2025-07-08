@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Users, Settings, BarChart3, UserPlus, Edit, Trash2, Eye, Database, Lock, AlertTriangle } from 'lucide-react';
-import ModuleHeader from '../common/ModuleHeader';
-import FirestorePopulator from './FirestorePopulator';
+import { Shield, Users, Settings, BarChart3, UserPlus, Edit, Trash2, Eye, Database, Lock, AlertTriangle, Key } from 'lucide-react';
+import ModuleContainer from '../common/ModuleContainer';
 import { useAuth } from '../../contexts/AuthContext';
 import { usersService, statisticsService, type User } from '../../services/firebaseService';
-import { seedFirebaseData } from '../../utils/seedData';
-import { createAllTestUsers, displayLoginCredentials } from '../../utils/createTestUsers';
-import { securityTester } from '../../utils/securityTester';
-import { testingMode } from '../../utils/testingMode';
+import { safeFormatDate } from '../../utils/dateUtils';
+import EmployeeIdManager from './EmployeeIdManager';
+
+// Simple testing mode fallback
+const testingMode = {
+  shouldBypassRoleRestrictions: () => localStorage.getItem('testingMode') === 'true'
+};
 
 const AdminModule: React.FC = () => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'settings' | 'data' | 'security'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'settings' | 'data' | 'security' | 'employee-ids'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -22,9 +24,18 @@ const AdminModule: React.FC = () => {
     totalProjects: 0,
     totalComplaints: 0
   });
-  const [seeding, setSeeding] = useState(false);
-  const [creatingUsers, setCreatingUsers] = useState(false);
-  const [testingRules, setTestingRules] = useState(false);
+
+  // User management state
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [showEditUser, setShowEditUser] = useState(false);
+  const [showViewUser, setShowViewUser] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [userFormData, setUserFormData] = useState({
+    name: '',
+    employeeId: '',
+    role: 'sales' as User['role'],
+    status: 'active' as User['status']
+  });
 
   // Load data from Firebase
   useEffect(() => {
@@ -47,69 +58,9 @@ const AdminModule: React.FC = () => {
     loadData();
   }, []);
 
-
-
-  const handleSeedData = async () => {
-    if (!confirm('This will add sample data to your Firebase database. Continue?')) return;
-
-    try {
-      setSeeding(true);
-      await seedFirebaseData();
-      alert('Sample data has been successfully added to Firebase!');
-
-      // Reload data
-      const [usersData, statsData] = await Promise.all([
-        usersService.getUsers(),
-        statisticsService.getDashboardStats()
-      ]);
-      setUsers(usersData);
-      setStats(statsData);
-    } catch (error) {
-      console.error('Error seeding data:', error);
-      alert('Failed to seed data. Please check the console for details.');
-    } finally {
-      setSeeding(false);
-    }
-  };
-
-  const handleCreateTestUsers = async () => {
-    if (!confirm('This will create test user accounts for all roles. Continue?')) return;
-
-    try {
-      setCreatingUsers(true);
-      await createAllTestUsers();
-      alert('Test users have been created successfully! Check the console for login credentials.');
-
-      // Reload users
-      const usersData = await usersService.getUsers();
-      setUsers(usersData);
-    } catch (error) {
-      console.error('Error creating test users:', error);
-      alert('Failed to create test users. Please check the console for details.');
-    } finally {
-      setCreatingUsers(false);
-    }
-  };
-
-  const handleShowCredentials = () => {
-    displayLoginCredentials();
-    alert('Login credentials have been displayed in the console. Press F12 to view.');
-  };
-
-  const handleTestSecurityRules = async () => {
-    if (!confirm('This will test Firebase Security Rules with different user roles. Continue?')) return;
-
-    try {
-      setTestingRules(true);
-      await securityTester.runComprehensiveTests();
-      alert('Security rules testing completed! Check the console for detailed results.');
-    } catch (error) {
-      console.error('Error testing security rules:', error);
-      alert('Failed to test security rules. Please check the console for details.');
-    } finally {
-      setTestingRules(false);
-    }
-  };
+  // Sample data seeding removed for production
+  // Test user creation removed for production
+  // Security testing removed for production
 
   const getRoleColor = (role: string) => {
     switch (role) {
@@ -134,6 +85,111 @@ const AdminModule: React.FC = () => {
       : 'bg-red-100 text-red-800 border-red-200';
   };
 
+  // User management handlers
+  const handleViewUser = (user: User) => {
+    setSelectedUser(user);
+    setShowViewUser(true);
+  };
+
+  // Handle opening edit form
+  const handleEditUser = (user: User) => {
+    setSelectedUser(user);
+    setUserFormData({
+      name: user.name,
+      employeeId: user.employeeId || '',
+      role: user.role,
+      status: user.status
+    });
+    setShowEditUser(true);
+  };
+
+  const handleDeleteUser = async (user: User) => {
+    if (!confirm(`Are you sure you want to delete user "${user.name}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await usersService.deleteUser(user.id!);
+      setUsers(users.filter(u => u.id !== user.id));
+      alert('User deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      alert('Failed to delete user. Please try again.');
+    }
+  };
+
+  const handleAddUser = () => {
+    setUserFormData({
+      name: '',
+      employeeId: '',
+      role: 'sales',
+      status: 'active'
+    });
+    setShowAddUser(true);
+  };
+
+  // Save or create user
+  const handleSaveUser = async () => {
+    try {
+      if (selectedUser) {
+        // Update existing user
+        const updates: Partial<User> = {
+          employeeId: userFormData.employeeId,
+          role: userFormData.role,
+          status: userFormData.status
+        };
+        await usersService.updateUser(selectedUser.id!, updates);
+        setUsers(users.map(u => u.id === selectedUser.id ? { ...u, ...updates } as User : u));
+        alert('User updated successfully!');
+
+      } else {
+        // Create new user directly in Firestore (no Firebase Auth)
+        try {
+          // Generate a unique UID for Firestore
+          const uid = `user_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+
+          // Generate email from employee ID if not provided
+          const email = userFormData.employeeId ? `${userFormData.employeeId.toLowerCase()}@mysteer.com` : `user${Date.now()}@mysteer.com`;
+
+          const newUser = {
+            uid,
+            name: userFormData.name,
+            email,
+            employeeId: userFormData.employeeId,
+            role: userFormData.role,
+            status: userFormData.status,
+            passwordSet: false,
+            isTemporary: true,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+
+          await usersService.createUser(newUser);
+          const updatedUsers = await usersService.getUsers();
+          setUsers(updatedUsers);
+          alert('User created successfully! They can log in using their Employee ID.');
+        } catch (createError: any) {
+          console.error('User creation error:', createError);
+          alert(createError.message || 'Failed to create user.');
+          return;
+        }
+      }
+
+      setShowAddUser(false);
+      setShowEditUser(false);
+      setSelectedUser(null);
+
+    } catch (error: any) {
+      console.error('Error saving user:', error);
+      alert(error.message || 'Failed to save user. Please try again.');
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setUserFormData(prev => ({ ...prev, [name]: value }));
+  };
+
   // Only allow admin access (unless testing mode is enabled)
   const isTestingMode = testingMode.shouldBypassRoleRestrictions();
 
@@ -153,46 +209,49 @@ const AdminModule: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50">
-      <ModuleHeader
-        title="Admin Module"
-        subtitle="Manage users, settings, and system analytics"
-        icon={Shield}
-        iconColor="text-white"
-        iconBgColor="bg-gradient-to-r from-purple-500 to-purple-600"
-      >
-        <button className="flex items-center bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white px-4 py-2 rounded-xl transition-all duration-200 hover:shadow-lg hover:scale-105">
-          <UserPlus className="w-4 h-4 mr-2" />
-          Add User
-        </button>
-      </ModuleHeader>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Tab Navigation */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-2 shadow-lg border border-white/50 mb-8">
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => setActiveTab('users')}
-                  className={`flex items-center px-4 py-2 rounded-xl transition-all duration-200 ${
-                    activeTab === 'users'
-                      ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
-                  }`}
-                >
-                  <Users className="w-4 h-4 mr-2" />
-                  User Management
-                </button>
+    <ModuleContainer
+      title="Admin Module"
+      subtitle="Manage users, settings, and system analytics"
+      icon={Shield}
+      iconColor="text-white"
+      iconBgColor="bg-gradient-to-r from-purple-500 to-purple-600"
+    >
+      {/* Tab Navigation */}
+      <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-1 shadow-lg border border-white/50 mb-6">
+        <div className="flex flex-col sm:flex-row gap-1">
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`flex items-center justify-center sm:justify-start px-6 py-4 sm:py-3 rounded-xl transition-all duration-300 text-sm font-semibold ${
+              activeTab === 'users'
+                ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg transform scale-105 sm:scale-100'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-white/70 active:scale-95'
+            }`}
+            >
+              <Users className="w-5 h-5 mr-3" />
+              User Management
+            </button>
             <button
               onClick={() => setActiveTab('analytics')}
-              className={`flex items-center px-4 py-2 rounded-xl transition-all duration-200 ${
+              className={`flex items-center justify-center sm:justify-start px-6 py-4 sm:py-3 rounded-xl transition-all duration-300 text-sm font-semibold ${
                 activeTab === 'analytics'
-                  ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+                  ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg transform scale-105 sm:scale-100'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-white/70 active:scale-95'
               }`}
             >
-              <BarChart3 className="w-4 h-4 mr-2" />
+              <BarChart3 className="w-5 h-5 mr-3" />
               Analytics
             </button>
+            {/* <button
+              onClick={() => setActiveTab('employee-ids')}
+              className={`flex items-center justify-center sm:justify-start px-6 py-4 sm:py-3 rounded-xl transition-all duration-300 text-sm font-semibold ${
+                activeTab === 'employee-ids'
+                  ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg transform scale-105 sm:scale-100'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-white/70 active:scale-95'
+              }`}
+            >
+              <Key className="w-5 h-5 mr-3" />
+              Employee IDs
+            </button> */}
             {/* <button
               onClick={() => setActiveTab('data')}
               className={`flex items-center px-4 py-2 rounded-xl transition-all duration-200 ${
@@ -229,69 +288,152 @@ const AdminModule: React.FC = () => {
           </div>
         </div>
 
-        {/* Users Tab */}
-        {activeTab === 'users' && (
-          <div className="space-y-4">
+        {/* Tab Content */}
+        <div className="mt-6">
+          {/* Users Tab */}
+          {activeTab === 'users' && (
+          <div className="space-y-6">
+            {/* Add User Button */}
+            <div className="flex justify-center sm:justify-end">
+              <button
+                onClick={handleAddUser}
+                className="flex items-center bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white px-8 py-4 rounded-2xl transition-all duration-300 hover:shadow-xl hover:scale-105 active:scale-95 w-full sm:w-auto justify-center font-semibold shadow-lg"
+              >
+                <UserPlus className="w-6 h-6 mr-3" />
+                Add New User
+              </button>
+            </div>
+            
             {loading ? (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto"></div>
-                <p className="mt-4 text-gray-600">Loading users...</p>
+              <div className="text-center py-16">
+                <div className="relative">
+                  <div className="animate-spin rounded-full h-16 w-16 border-4 border-purple-200 border-t-purple-500 mx-auto"></div>
+                  <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-purple-300 animate-pulse"></div>
+                </div>
+                <p className="mt-6 text-gray-600 font-medium">Loading users...</p>
               </div>
             ) : users.length === 0 ? (
-              <div className="text-center py-12">
-                <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">No users found</p>
+              <div className="text-center py-16">
+                <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-3xl p-12 border border-purple-100">
+                  <Users className="w-20 h-20 text-purple-300 mx-auto mb-6" />
+                  <h3 className="text-xl font-semibold text-gray-800 mb-2">No users found</h3>
+                  <p className="text-gray-500">Get started by adding your first user</p>
+                </div>
               </div>
             ) : (
-              users.map((user) => (
-              <div
-                key={user.id}
-                className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-purple-600 rounded-full flex items-center justify-center">
-                      <span className="text-white font-semibold text-lg">
-                        {user.name.split(' ').map(n => n[0]).join('')}
-                      </span>
+              <div className="space-y-4">
+                {users.map((user, index) => (
+                <div
+                  key={user.id}
+                  className="bg-white/90 backdrop-blur-sm rounded-2xl p-5 sm:p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300 hover:scale-[1.02] hover:bg-white/95"
+                  style={{ animationDelay: `${index * 100}ms` }}
+                >
+                  <div className="flex flex-col space-y-4">
+                    {/* User Info Section */}
+                    <div className="flex items-start space-x-4">
+                      <div className="relative">
+                        <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0">
+                          <span className="text-white font-bold text-lg">
+                            {user.name.split(' ').map(n => n[0]).join('')}
+                          </span>
+                        </div>
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-400 rounded-full border-2 border-white"></div>
+                      </div>
+                      
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="text-lg sm:text-xl font-bold text-gray-900 truncate">{user.name}</h3>
+                            <p className="text-gray-600 text-sm sm:text-base truncate font-medium">{user.email}</p>
+                            {user.employeeId && (
+                              <p className="text-xs sm:text-sm text-gray-500 font-mono bg-gray-50 px-2 py-1 rounded-lg inline-block mt-1">
+                                ID: {user.employeeId}
+                              </p>
+                            )}
+                          </div>
+                          
+                          {/* Action Buttons - Desktop */}
+                          <div className="hidden sm:flex items-center space-x-1">
+                            <button
+                              onClick={() => handleViewUser(user)}
+                              className="p-3 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200 hover:scale-110 group"
+                              title="View user details"
+                            >
+                              <Eye className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                            </button>
+                            <button
+                              onClick={() => handleEditUser(user)}
+                              className="p-3 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-xl transition-all duration-200 hover:scale-110 group"
+                              title="Edit user"
+                            >
+                              <Edit className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteUser(user)}
+                              className="p-3 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 hover:scale-110 group"
+                              title="Delete user"
+                            >
+                              <Trash2 className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {/* Badges */}
+                        <div className="flex flex-wrap items-center gap-2 mt-3">
+                          <span className={`px-3 py-1.5 rounded-full text-xs font-bold border-2 ${getRoleColor(user.role)} shadow-sm`}>
+                            {user.role ? user.role.toUpperCase() : 'UNKNOWN'}
+                          </span>
+                          <span className={`px-3 py-1.5 rounded-full text-xs font-bold border-2 ${getStatusColor(user.status)} shadow-sm`}>
+                            {user.status ? user.status.toUpperCase() : 'UNKNOWN'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">{user.name}</h3>
-                      <p className="text-gray-600">{user.email}</p>
-                      <div className="flex items-center space-x-2 mt-1">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getRoleColor(user.role)}`}>
-                          {user.role.toUpperCase()}
+                    
+                    {/* Action Buttons - Mobile */}
+                    <div className="flex sm:hidden justify-center space-x-2 pt-2 border-t border-gray-100">
+                      <button
+                        onClick={() => handleViewUser(user)}
+                        className="flex-1 flex items-center justify-center py-3 px-4 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all duration-200 active:scale-95 font-medium"
+                      >
+                        <Eye className="w-5 h-5 mr-2" />
+                        View
+                      </button>
+                      <button
+                        onClick={() => handleEditUser(user)}
+                        className="flex-1 flex items-center justify-center py-3 px-4 text-green-600 bg-green-50 hover:bg-green-100 rounded-xl transition-all duration-200 active:scale-95 font-medium"
+                      >
+                        <Edit className="w-5 h-5 mr-2" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteUser(user)}
+                        className="flex-1 flex items-center justify-center py-3 px-4 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-all duration-200 active:scale-95 font-medium"
+                      >
+                        <Trash2 className="w-5 h-5 mr-2" />
+                        Delete
+                      </button>
+                    </div>
+                    
+                    {/* Footer Info */}
+                    <div className="pt-3 border-t border-gray-100 text-xs sm:text-sm text-gray-500">
+                      <div className="flex flex-col sm:flex-row sm:justify-between space-y-1 sm:space-y-0 bg-gray-50 rounded-lg p-3">
+                        <span className="flex items-center">
+                          <span className="w-2 h-2 bg-green-400 rounded-full mr-2"></span>
+                          Created: {safeFormatDate(user.createdAt) || 'N/A'}
                         </span>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(user.status)}`}>
-                          {user.status.toUpperCase()}
-                        </span>
+                        {user.lastLogin && (
+                          <span className="flex items-center">
+                            <span className="w-2 h-2 bg-blue-400 rounded-full mr-2"></span>
+                            Last login: {safeFormatDate(user.lastLogin) || 'N/A'}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center space-x-2">
-                    <button className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    <button className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors">
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
                 </div>
-                
-                <div className="mt-4 pt-4 border-t border-gray-200 text-sm text-gray-500">
-                  <div className="flex justify-between">
-                    <span>Created: {user.createdAt?.toDate?.()?.toLocaleDateString() || 'N/A'}</span>
-                    {user.lastLogin && (
-                      <span>Last login: {user.lastLogin?.toDate?.()?.toLocaleDateString() || 'N/A'}</span>
-                    )}
-                  </div>
-                </div>
+                ))}
               </div>
-              ))
             )}
           </div>
         )}
@@ -391,8 +533,247 @@ const AdminModule: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
-    </div>
+
+        {/* Employee ID Manager Tab */}
+        {activeTab === 'employee-ids' && (
+          <EmployeeIdManager />
+        )}
+        </div>
+
+      {/* Add User Modal */}
+      {showAddUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Add New User</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                <input
+                  type="text"
+                  name="name"
+                  value={userFormData.name}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Enter user name"
+                  required
+                />
+              </div>
+
+
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Employee ID</label>
+                <input
+                  type="text"
+                  name="employeeId"
+                  value={userFormData.employeeId}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Enter employee ID (optional)"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                <select
+                  name="role"
+                  value={userFormData.role}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="admin">Admin</option>
+                  <option value="sales">Sales</option>
+                  <option value="designer">Designer</option>
+                  <option value="production">Production</option>
+                  <option value="installation">Installation</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                  name="status"
+                  value={userFormData.status}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => setShowAddUser(false)}
+                className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveUser}
+                className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-colors"
+              >
+                Add User
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit User Modal */}
+      {showEditUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit User</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                <input
+                  type="text"
+                  name="name"
+                  value={userFormData.name}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Enter user name"
+                  required
+                />
+              </div>
+
+
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Employee ID</label>
+                <input
+                  type="text"
+                  name="employeeId"
+                  value={userFormData.employeeId}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Enter employee ID (optional)"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                <select
+                  name="role"
+                  value={userFormData.role}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="admin">Admin</option>
+                  <option value="sales">Sales</option>
+                  <option value="designer">Designer</option>
+                  <option value="production">Production</option>
+                  <option value="installation">Installation</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                  name="status"
+                  value={userFormData.status}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowEditUser(false);
+                  setSelectedUser(null);
+                }}
+                className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveUser}
+                className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-colors"
+              >
+                Update User
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View User Modal */}
+      {showViewUser && selectedUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">User Details</h3>
+
+            <div className="space-y-4">
+              <div className="flex items-center space-x-4 mb-6">
+                <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-600 rounded-full flex items-center justify-center">
+                  <span className="text-white font-semibold text-xl">
+                    {selectedUser.name.split(' ').map(n => n[0]).join('')}
+                  </span>
+                </div>
+                <div>
+                  <h4 className="text-xl font-semibold text-gray-900">{selectedUser.name}</h4>
+                  <p className="text-gray-600">{selectedUser.email}</p>
+                  {selectedUser.employeeId && (
+                    <p className="text-sm text-gray-500">Employee ID: {selectedUser.employeeId}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getRoleColor(selectedUser.role)}`}>
+                    {selectedUser.role.toUpperCase()}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(selectedUser.status)}`}>
+                    {selectedUser.status.toUpperCase()}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Created</label>
+                <p className="text-gray-600">
+                  {safeFormatDate(selectedUser.createdAt) || 'N/A'}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Last Updated</label>
+                <p className="text-gray-600">
+                  {safeFormatDate(selectedUser.updatedAt) || 'N/A'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => {
+                  setShowViewUser(false);
+                  setSelectedUser(null);
+                }}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </ModuleContainer>
   );
 };
 

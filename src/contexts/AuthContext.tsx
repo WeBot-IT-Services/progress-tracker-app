@@ -1,12 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User as AppUser, UserRole } from '../types';
-import { mockLogin, mockRegister } from '../services/mockAuth';
 import {
-  firebaseLogin,
   firebaseRegister,
   firebaseLogout,
   onAuthStateChange,
-  updateUserProfile as firebaseUpdateUserProfile
+  updateUserProfile as firebaseUpdateUserProfile,
+  updateAuthPassword
 } from '../services/firebaseAuth';
 import {
   saveAuthData,
@@ -15,19 +14,17 @@ import {
   initOfflineStorage
 } from '../services/offlineStorage';
 import { initSyncService, setupRealtimeListeners, startSyncAfterAuth } from '../services/syncService';
-import { localAuth, type LocalUser } from '../services/localAuth';
-
-// Configuration: set to true to use Firebase, false for mock auth
-const USE_FIREBASE = true; // Always use Firebase now
-const USE_LOCAL_FALLBACK = true; // Use local auth as fallback when Firebase fails
+import EnhancedEmployeeIdAuthService from '../services/enhancedEmployeeIdAuth';
 
 interface AuthContextType {
   currentUser: AppUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string, role: UserRole) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
+  register: (email: string, password: string, name: string, role: UserRole) => Promise<AppUser>;
   logout: () => Promise<void>;
   updateUserProfile: (updates: Partial<AppUser>) => Promise<void>;
+  changePassword: (newPassword: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
   isFirebaseMode: boolean;
   isLocalMode: boolean;
 }
@@ -50,58 +47,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [realtimeUnsubscribers, setRealtimeUnsubscribers] = useState<(() => void)[]>([]);
-  const [isLocalMode, setIsLocalMode] = useState(false);
 
-  // Helper function to convert LocalUser to AppUser
-  const convertLocalUserToAppUser = (localUser: LocalUser): AppUser => ({
-    uid: localUser.uid,
-    email: localUser.email,
-    name: localUser.name,
-    role: localUser.role,
-    department: localUser.department,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    status: 'active'
-  });
+  const login = async (identifier: string, password: string) => {
+    console.log('🔐 Firebase authentication attempt started:', { identifier });
 
-  const login = async (email: string, password: string) => {
     try {
-      let user: AppUser;
-
-      if (USE_FIREBASE && !isLocalMode) {
-        try {
-          user = await firebaseLogin(email, password);
-          console.log('🔥 Firebase authentication successful');
-        } catch (firebaseError) {
-          console.warn('🔥 Firebase authentication failed:', firebaseError);
-
-          if (USE_LOCAL_FALLBACK) {
-            console.log('🔄 Falling back to local authentication...');
-            const localUser = await localAuth.signIn(email, password);
-            user = convertLocalUserToAppUser(localUser);
-            setIsLocalMode(true);
-            console.log('🔐 Local authentication successful');
-          } else {
-            throw firebaseError;
-          }
-        }
-      } else if (isLocalMode || !USE_FIREBASE) {
-        if (isLocalMode) {
-          const localUser = await localAuth.signIn(email, password);
-          user = convertLocalUserToAppUser(localUser);
-        } else {
-          user = await mockLogin(email, password);
-        }
-      } else {
-        user = await mockLogin(email, password);
-      }
+      // Use enhanced employee ID authentication service for Firebase authentication
+      console.log('🔥 Attempting Firebase authentication...');
+      const user = await EnhancedEmployeeIdAuthService.login(identifier, password);
+      console.log('🔥 Firebase authentication successful');
 
       // Save user data to offline storage
       await saveAuthData(user);
       setCurrentUser(user);
 
-      // Setup realtime listeners and start sync when user logs in (only if Firebase mode)
-      if (USE_FIREBASE && !isLocalMode && user.uid) {
+      // Setup realtime listeners and start sync when user logs in
+      if (user.uid) {
         try {
           startSyncAfterAuth();
           const unsubscribers = setupRealtimeListeners();
@@ -116,22 +77,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const register = async (email: string, password: string, name: string, role: UserRole) => {
+  const register = async (email: string, password: string, name: string, role: UserRole): Promise<AppUser> => {
     try {
-      let user: AppUser;
-
-      if (USE_FIREBASE) {
-        user = await firebaseRegister(email, password, name, role);
-      } else {
-        user = await mockRegister(email, password, name, role);
-      }
+      // Use Firebase registration
+      const user = await firebaseRegister(email, password, name, role);
 
       // Save user data to offline storage
       await saveAuthData(user);
       setCurrentUser(user);
 
-      // Setup realtime listeners and start sync when user registers (only if authenticated)
-      if (USE_FIREBASE && user.uid) {
+      // Setup realtime listeners and start sync when user registers
+      if (user.uid) {
         try {
           startSyncAfterAuth();
           const unsubscribers = setupRealtimeListeners();
@@ -140,6 +96,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.warn('Failed to setup realtime listeners:', error);
         }
       }
+
+      return user; // <-- return the created user
     } catch (error) {
       console.error('Registration error:', error);
       throw error;
@@ -152,16 +110,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       realtimeUnsubscribers.forEach(unsubscribe => unsubscribe());
       setRealtimeUnsubscribers([]);
 
-      if (isLocalMode) {
-        await localAuth.signOut();
-      } else if (USE_FIREBASE) {
-        await firebaseLogout();
-      }
+      // Use Firebase logout
+      await firebaseLogout();
 
       // Clear offline storage
       await clearAuthData();
       setCurrentUser(null);
-      setIsLocalMode(false);
     } catch (error) {
       console.error('Logout error:', error);
       throw error;
@@ -172,9 +126,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (!currentUser) throw new Error('No user logged in');
 
     try {
-      if (USE_FIREBASE) {
-        await firebaseUpdateUserProfile(currentUser.uid, updates);
-      }
+      // Update Firebase user profile
+      await firebaseUpdateUserProfile(currentUser.uid, updates);
 
       const updatedUser = { ...currentUser, ...updates, updatedAt: new Date() };
 
@@ -187,6 +140,46 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  // New: change password logic for first-login users
+  const changePassword = async (newPassword: string) => {
+    if (!currentUser) throw new Error('No user logged in');
+    try {
+      await updateAuthPassword(newPassword);
+      // Mark password as set after successful update
+      await updateUserProfile({ passwordSet: true, isTemporary: false });
+
+      // Refresh user data to get updated flags
+      console.log('🔄 Refreshing user data after password change...');
+      await refreshUser();
+      console.log('✅ User data refreshed after password change');
+    } catch (error: any) {
+      console.error('Change password error:', error);
+      if (error.code === 'auth/requires-recent-login') {
+        // Invalidate session and require re-login
+        await logout();
+        throw new Error('Session expired. Please log in again to change your password.');
+      }
+      throw error;
+    }
+  };
+
+  // New: refresh user data from Firestore
+  const refreshUser = async () => {
+    if (!currentUser) return;
+    
+    try {
+      const { getCurrentUser } = await import('../services/firebaseAuth');
+      const freshUser = await getCurrentUser();
+      if (freshUser) {
+        await saveAuthData(freshUser);
+        setCurrentUser(freshUser);
+        console.log('🔄 User data refreshed from Firestore');
+      }
+    } catch (error) {
+      console.error('Error refreshing user data:', error);
+    }
+  };
+
   useEffect(() => {
     const initializeAuth = async () => {
       try {
@@ -196,36 +189,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Initialize sync service (but don't start listeners yet)
         initSyncService();
 
-        if (USE_FIREBASE) {
-          // Set up Firebase auth state listener
-          const unsubscribe = onAuthStateChange(async (user) => {
-            if (user) {
-              await saveAuthData(user);
-              setCurrentUser(user);
+        // Set up Firebase auth state listener
+        const unsubscribe = onAuthStateChange(async (user) => {
+          if (user) {
+            await saveAuthData(user);
+            setCurrentUser(user);
 
-              // Setup realtime listeners and start sync (only if user is authenticated)
-              try {
-                startSyncAfterAuth();
-                const unsubscribers = setupRealtimeListeners();
-                setRealtimeUnsubscribers(unsubscribers);
-              } catch (error) {
-                console.warn('Failed to setup realtime listeners:', error);
-              }
-            } else {
-              // Check for offline auth data
-              const offlineUser = await getAuthData();
-              setCurrentUser(offlineUser);
+            // Setup realtime listeners and start sync (only if user is authenticated)
+            try {
+              startSyncAfterAuth();
+              const unsubscribers = setupRealtimeListeners();
+              setRealtimeUnsubscribers(unsubscribers);
+            } catch (error) {
+              console.warn('Failed to setup realtime listeners:', error);
             }
-            setLoading(false);
-          });
-
-          return unsubscribe;
-        } else {
-          // For mock mode, check for offline auth data
-          const offlineUser = await getAuthData();
-          setCurrentUser(offlineUser);
+          } else {
+            // Check for offline auth data
+            const offlineUser = await getAuthData();
+            setCurrentUser(offlineUser);
+          }
           setLoading(false);
-        }
+        });
+
+        return unsubscribe;
       } catch (error) {
         console.error('Error initializing auth:', error);
         setLoading(false);
@@ -242,13 +228,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     register,
     logout,
     updateUserProfile,
-    isFirebaseMode: USE_FIREBASE && !isLocalMode,
-    isLocalMode
+    changePassword,
+    refreshUser,
+    isFirebaseMode: true,
+    isLocalMode: false
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
+};
+
+// Export getCurrentUser function for services that need it
+export const getCurrentUser = (): AppUser | null => {
+  const authContext = React.useContext(AuthContext);
+  return authContext ? authContext.currentUser : null;
 };

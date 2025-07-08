@@ -338,7 +338,9 @@ export const updateInstallationProgress = async (
     url,
     uploadedAt: new Date(),
     uploadedBy: assignedTo,
-    milestoneId
+    milestoneId,
+    date: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
+    folderPath: `projects/${projectId}/installation/${milestoneId}/${new Date().toISOString().split('T')[0]}`
   })) : [];
 
   const installationData: InstallationData = {

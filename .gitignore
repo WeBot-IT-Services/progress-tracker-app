@@ -12,6 +12,19 @@ dist
 dist-ssr
 *.local
 
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Firebase
+.firebase/
+firebase-debug.log
+serviceAccountKey.json
+scripts/serviceAccountKey.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,3 +35,21 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Development and testing files
+debug-*.html
+debug-*.js
+test-*.js
+test-*.mjs
+*-test.html
+*-test.js
+permission-test.js
+ensure-production-user*.js
+employee-id-demo.js
+check-users.js
+debug-dev.sh
+deploy-dev-rules.sh
+firestore-dev.rules
+storage-test.html
+test-build.sh
+server/

@@ -1,278 +1,259 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  RefreshCw, 
-  AlertTriangle, 
-  CheckCircle, 
-  Clock, 
-  Wifi, 
-  WifiOff,
-  X,
-  RotateCcw,
-  AlertCircle
-} from 'lucide-react';
-import { 
-  addSyncListener, 
-  getSyncStatus, 
-  forceSync, 
-  retryFailedActions,
-  getConflicts,
-  resolveConflict 
-} from '../../services/syncService';
+import { Wifi, WifiOff, RefreshCw, CheckCircle, AlertCircle, X } from 'lucide-react';
+import { projectsService, milestonesService } from '../../services/firebaseService';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface SyncStatus {
-  isSyncing: boolean;
   isOnline: boolean;
-  pendingActions: number;
-  failedActions: number;
-  conflicts: number;
-  lastSyncTime: Date | null;
-  syncProgress: number;
-  currentOperation?: string;
+  lastSync: Date | null;
+  syncInProgress: boolean;
+  syncErrors: string[];
+  projectCount: number;
+  milestoneCount: number;
+  lastDataFetch: Date | null;
+  firestoreConnected: boolean;
 }
 
 interface SyncStatusDashboardProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 const SyncStatusDashboard: React.FC<SyncStatusDashboardProps> = ({ isOpen, onClose }) => {
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>(getSyncStatus());
-  const [conflicts, setConflicts] = useState<any[]>([]);
-  const [isRetrying, setIsRetrying] = useState(false);
-  const [isResolvingConflicts, setIsResolvingConflicts] = useState(false);
+  const { currentUser } = useAuth();
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({
+    isOnline: navigator.onLine,
+    lastSync: null,
+    syncInProgress: false,
+    syncErrors: [],
+    projectCount: 0,
+    milestoneCount: 0,
+    lastDataFetch: null,
+    firestoreConnected: false
+  });
 
   useEffect(() => {
-    if (!isOpen) return;
+    const handleOnline = () => setSyncStatus(prev => ({ ...prev, isOnline: true }));
+    const handleOffline = () => setSyncStatus(prev => ({ ...prev, isOnline: false }));
 
-    // Listen for sync status changes
-    const removeSyncListener = addSyncListener((status) => {
-      setSyncStatus(status);
-    });
-
-    // Load conflicts
-    loadConflicts();
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
     return () => {
-      removeSyncListener();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
-  }, [isOpen]);
+  }, []);
 
-  const loadConflicts = async () => {
+  // Load real data from Firestore
+  useEffect(() => {
+    const loadFirestoreData = async () => {
+      if (!currentUser) return;
+      
+      try {
+        setSyncStatus(prev => ({ ...prev, syncInProgress: true, syncErrors: [] }));
+        
+        // Fetch projects from Firestore
+        const projects = await projectsService.getProjects();
+        
+        // Get milestones for all projects
+        let totalMilestones = 0;
+        if (projects.length > 0) {
+          const milestonePromises = projects.map(project => 
+            project.id ? milestonesService.getMilestonesByProject(project.id) : Promise.resolve([])
+          );
+          const allMilestones = await Promise.all(milestonePromises);
+          totalMilestones = allMilestones.reduce((total, milestones) => total + milestones.length, 0);
+        }
+        
+        setSyncStatus(prev => ({
+          ...prev,
+          syncInProgress: false,
+          projectCount: projects.length,
+          milestoneCount: totalMilestones,
+          lastDataFetch: new Date(),
+          lastSync: new Date(),
+          firestoreConnected: true,
+          syncErrors: []
+        }));
+        
+      } catch (error) {
+        console.error('Error loading Firestore data:', error);
+        setSyncStatus(prev => ({
+          ...prev,
+          syncInProgress: false,
+          firestoreConnected: false,
+          syncErrors: [error?.message || 'Failed to connect to Firestore']
+        }));
+      }
+    };
+
+    loadFirestoreData();
+  }, [currentUser]);
+
+  const handleManualSync = async () => {
+    if (!currentUser) return;
+    
+    setSyncStatus(prev => ({ ...prev, syncInProgress: true, syncErrors: [] }));
+    
     try {
-      const conflictList = await getConflicts();
-      setConflicts(conflictList.filter(c => c.status === 'pending'));
+      // Force refresh data from Firestore
+      const projects = await projectsService.getProjects();
+      
+      // Get milestones for all projects
+      let totalMilestones = 0;
+      if (projects.length > 0) {
+        const milestonePromises = projects.map(project => 
+          project.id ? milestonesService.getMilestonesByProject(project.id) : Promise.resolve([])
+        );
+        const allMilestones = await Promise.all(milestonePromises);
+        totalMilestones = allMilestones.reduce((total, milestones) => total + milestones.length, 0);
+      }
+      
+      setSyncStatus(prev => ({
+        ...prev,
+        syncInProgress: false,
+        projectCount: projects.length,
+        milestoneCount: totalMilestones,
+        lastDataFetch: new Date(),
+        lastSync: new Date(),
+        firestoreConnected: true,
+        syncErrors: []
+      }));
+      
     } catch (error) {
-      console.error('Error loading conflicts:', error);
+      console.error('Error during manual sync:', error);
+      setSyncStatus(prev => ({
+        ...prev,
+        syncInProgress: false,
+        firestoreConnected: false,
+        syncErrors: [error?.message || 'Sync failed']
+      }));
     }
   };
 
-  const handleForceSync = async () => {
-    try {
-      await forceSync();
-    } catch (error) {
-      console.error('Force sync failed:', error);
-    }
+  const getStatusIcon = () => {
+    if (!syncStatus.isOnline) return <WifiOff className="w-4 h-4 text-red-500" />;
+    if (syncStatus.syncInProgress) return <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />;
+    if (syncStatus.syncErrors.length > 0) return <AlertCircle className="w-4 h-4 text-yellow-500" />;
+    return <CheckCircle className="w-4 h-4 text-green-500" />;
   };
 
-  const handleRetryFailed = async () => {
-    setIsRetrying(true);
-    try {
-      await retryFailedActions();
-    } catch (error) {
-      console.error('Retry failed actions error:', error);
-    } finally {
-      setIsRetrying(false);
-    }
+  const getStatusText = () => {
+    if (!syncStatus.isOnline) return 'Offline';
+    if (syncStatus.syncInProgress) return 'Syncing...';
+    if (syncStatus.syncErrors.length > 0) return 'Sync Issues';
+    if (!syncStatus.firestoreConnected) return 'Disconnected';
+    return `Synced (${syncStatus.projectCount} projects)`;
   };
-
-  const handleResolveConflict = async (conflictId: string, resolution: 'client-wins' | 'server-wins') => {
-    setIsResolvingConflicts(true);
-    try {
-      await resolveConflict(conflictId, resolution);
-      await loadConflicts();
-    } catch (error) {
-      console.error('Error resolving conflict:', error);
-    } finally {
-      setIsResolvingConflicts(false);
-    }
-  };
-
-  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">Sync Status Dashboard</h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+    <>
+      {/* Inline xDisplay */}
+      {!isOpen && (
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              {getStatusIcon()}
+              <span className="text-sm font-medium text-gray-700">
+                {getStatusText()}
+              </span>
+            </div>
+            
+            <button
+              onClick={handleManualSync}
+              disabled={syncStatus.syncInProgress || !syncStatus.isOnline}
+              className="p-1 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Manual sync"
+            >
+              <RefreshCw className={`w-4 h-4 text-gray-500 ${syncStatus.syncInProgress ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          
+          {syncStatus.lastDataFetch && (
+            <div className="mt-2 text-xs text-gray-500">
+              Last fetch: {syncStatus.lastDataFetch.toLocaleTimeString()} • {syncStatus.milestoneCount} milestones
+            </div>
+          )}
+          
+          {syncStatus.syncErrors.length > 0 && (
+            <div className="mt-2 text-xs text-red-600">
+              {syncStatus.syncErrors[0]}
+            </div>
+          )}
         </div>
+      )}
 
-        <div className="p-6 space-y-6 overflow-y-auto max-h-[60vh]">
-          {/* Connection Status */}
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-            <div className="flex items-center space-x-3">
-              {syncStatus.isOnline ? (
-                <Wifi className="w-6 h-6 text-green-500" />
-              ) : (
-                <WifiOff className="w-6 h-6 text-red-500" />
+      {/* Modal Display */}
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Sync Status</h2>
+              {onClose && (
+                <button
+                  onClick={onClose}
+                  className="p-1 rounded hover:bg-gray-100"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
               )}
-              <div>
-                <h3 className="font-medium text-gray-900">
-                  {syncStatus.isOnline ? 'Online' : 'Offline'}
-                </h3>
-                <p className="text-sm text-gray-600">
-                  {syncStatus.isOnline 
-                    ? 'Connected to server' 
-                    : 'Working offline - changes will sync when connection is restored'
-                  }
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Sync Progress */}
-          {syncStatus.isSyncing && (
-            <div className="space-y-3">
-              <div className="flex items-center space-x-3">
-                <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
-                <div className="flex-1">
-                  <h3 className="font-medium text-gray-900">Syncing...</h3>
-                  <p className="text-sm text-gray-600">{syncStatus.currentOperation}</p>
+            </div>              <div className="space-y-4">
+                <div className="flex items-center space-x-3">
+                  {getStatusIcon()}
+                  <span className="text-base font-medium text-gray-700">
+                    {getStatusText()}
+                  </span>
                 </div>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${syncStatus.syncProgress}%` }}
-                />
-              </div>
-              <p className="text-xs text-gray-500 text-center">
-                {syncStatus.syncProgress}% complete
-              </p>
-            </div>
-          )}
-
-          {/* Status Counters */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="text-center p-4 bg-blue-50 rounded-lg">
-              <div className="flex items-center justify-center mb-2">
-                <Clock className="w-6 h-6 text-blue-500" />
-              </div>
-              <div className="text-2xl font-bold text-blue-600">{syncStatus.pendingActions}</div>
-              <div className="text-sm text-gray-600">Pending Actions</div>
-            </div>
-
-            <div className="text-center p-4 bg-orange-50 rounded-lg">
-              <div className="flex items-center justify-center mb-2">
-                <AlertTriangle className="w-6 h-6 text-orange-500" />
-              </div>
-              <div className="text-2xl font-bold text-orange-600">{syncStatus.failedActions}</div>
-              <div className="text-sm text-gray-600">Failed Actions</div>
-            </div>
-
-            <div className="text-center p-4 bg-yellow-50 rounded-lg">
-              <div className="flex items-center justify-center mb-2">
-                <AlertCircle className="w-6 h-6 text-yellow-500" />
-              </div>
-              <div className="text-2xl font-bold text-yellow-600">{syncStatus.conflicts}</div>
-              <div className="text-sm text-gray-600">Conflicts</div>
-            </div>
-          </div>
-
-          {/* Last Sync Time */}
-          {syncStatus.lastSyncTime && (
-            <div className="text-center p-3 bg-green-50 rounded-lg">
-              <div className="flex items-center justify-center space-x-2 text-green-700">
-                <CheckCircle className="w-4 h-4" />
-                <span className="text-sm">
-                  Last sync: {syncStatus.lastSyncTime.toLocaleString()}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Conflicts Section */}
-          {conflicts.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="font-medium text-gray-900 flex items-center space-x-2">
-                <AlertCircle className="w-5 h-5 text-yellow-500" />
-                <span>Data Conflicts ({conflicts.length})</span>
-              </h3>
-              
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {conflicts.map((conflict) => (
-                  <div key={conflict.id} className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-900">
-                          {conflict.entityType} - {conflict.entityId}
-                        </h4>
-                        <p className="text-sm text-gray-600 mt-1">
-                          Conflict detected between local and server changes
-                        </p>
-                      </div>
-                      <div className="flex space-x-2 ml-4">
-                        <button
-                          onClick={() => handleResolveConflict(conflict.id, 'client-wins')}
-                          disabled={isResolvingConflicts}
-                          className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs rounded transition-colors disabled:opacity-50"
-                        >
-                          Keep Local
-                        </button>
-                        <button
-                          onClick={() => handleResolveConflict(conflict.id, 'server-wins')}
-                          disabled={isResolvingConflicts}
-                          className="px-3 py-1 bg-green-100 hover:bg-green-200 text-green-700 text-xs rounded transition-colors disabled:opacity-50"
-                        >
-                          Keep Server
-                        </button>
-                      </div>
-                    </div>
+                
+                {/* Real-time data counts */}
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="bg-blue-50 p-3 rounded">
+                    <div className="font-medium text-blue-800">Projects</div>
+                    <div className="text-blue-600">{syncStatus.projectCount}</div>
                   </div>
-                ))}
+                  <div className="bg-green-50 p-3 rounded">
+                    <div className="font-medium text-green-800">Milestones</div>
+                    <div className="text-green-600">{syncStatus.milestoneCount}</div>
+                  </div>
+                </div>
+                
+                {syncStatus.lastDataFetch && (
+                  <div className="text-sm text-gray-500">
+                    Last data fetch: {syncStatus.lastDataFetch.toLocaleString()}
+                  </div>
+                )}
+                
+                {syncStatus.lastSync && (
+                  <div className="text-sm text-gray-500">
+                    Last sync: {syncStatus.lastSync.toLocaleString()}
+                  </div>
+                )}
+                
+                {syncStatus.syncErrors.length > 0 && (
+                  <div className="text-sm text-red-600 bg-red-50 p-3 rounded">
+                    <div className="font-medium">Sync Errors:</div>
+                    <ul className="mt-1 space-y-1">
+                      {syncStatus.syncErrors.map((error, index) => (
+                        <li key={index}>• {error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                <button
+                  onClick={handleManualSync}
+                  disabled={syncStatus.syncInProgress || !syncStatus.isOnline}
+                  className="w-full bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                  <RefreshCw className={`w-4 h-4 ${syncStatus.syncInProgress ? 'animate-spin' : ''}`} />
+                  <span>{syncStatus.syncInProgress ? 'Syncing...' : 'Refresh Data'}</span>
+                </button>
               </div>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex space-x-3 pt-4 border-t border-gray-200">
-            {syncStatus.isOnline && !syncStatus.isSyncing && (
-              <button
-                onClick={handleForceSync}
-                className="flex-1 flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors"
-              >
-                <RefreshCw className="w-4 h-4" />
-                <span>Force Sync</span>
-              </button>
-            )}
-
-            {syncStatus.failedActions > 0 && (
-              <button
-                onClick={handleRetryFailed}
-                disabled={isRetrying}
-                className="flex-1 flex items-center justify-center space-x-2 bg-orange-600 hover:bg-orange-700 text-white py-2 px-4 rounded-lg transition-colors disabled:opacity-50"
-              >
-                <RotateCcw className={`w-4 h-4 ${isRetrying ? 'animate-spin' : ''}`} />
-                <span>{isRetrying ? 'Retrying...' : 'Retry Failed'}</span>
-              </button>
-            )}
-          </div>
-
-          {/* Help Text */}
-          <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
-            <p className="mb-1"><strong>Pending Actions:</strong> Changes waiting to be synchronized</p>
-            <p className="mb-1"><strong>Failed Actions:</strong> Operations that failed and need retry</p>
-            <p><strong>Conflicts:</strong> Data conflicts requiring manual resolution</p>
           </div>
         </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 };
 

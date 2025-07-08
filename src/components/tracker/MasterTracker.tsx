@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Search, Clock, CheckCircle, AlertTriangle, Eye } from 'lucide-react';
-import ModuleHeader from '../common/ModuleHeader';
+import ModuleContainer from '../common/ModuleContainer';
 import ProjectDetailsModal from './ProjectDetailsModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectsService, type Project, type Milestone } from '../../services/firebaseService';
 import { canViewAmount } from '../../utils/permissions';
+import { safeFormatDate } from '../../utils/dateUtils';
 
 interface ProjectWithMilestones extends Project {
   milestones?: Milestone[];
@@ -23,6 +24,18 @@ const MasterTracker: React.FC = () => {
   const [viewMode, setViewMode] = useState<'overview' | 'timeline' | 'cards' | 'table'>('overview');
   const [selectedProject, setSelectedProject] = useState<ProjectWithMilestones | null>(null);
 
+  // Helper function to safely convert Timestamp or Date to Date
+  const safeToDate = (dateValue: any): Date => {
+    if (!dateValue) return new Date();
+    if (typeof dateValue?.toDate === 'function') {
+      return dateValue.toDate();
+    }
+    if (dateValue instanceof Date) {
+      return dateValue;
+    }
+    return new Date(dateValue);
+  };
+
   // Get user permissions for amount visibility
   const canViewAmountField = canViewAmount(currentUser?.role || 'sales');
 
@@ -39,7 +52,7 @@ const MasterTracker: React.FC = () => {
             const milestones = await projectsService.getMilestonesByProject(project.id!);
 
             // Calculate days in current stage
-            const createdDate = project.createdAt?.toDate ? new Date(project.createdAt.toDate()) : new Date(project.createdAt);
+            const createdDate = safeToDate(project.createdAt);
             const today = new Date();
             const daysInStage = Math.floor((today.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -131,6 +144,8 @@ const MasterTracker: React.FC = () => {
   };
 
   const getProgressPercentage = (project: ProjectWithMilestones) => {
+    if (!project.status) return 0;
+
     switch (project.status.toLowerCase()) {
       case 'sales':
         return 10;
@@ -148,6 +163,8 @@ const MasterTracker: React.FC = () => {
   };
 
   const getResponsibleTeam = (status: string) => {
+    if (!status) return 'Sales Team';
+
     switch (status.toLowerCase()) {
       case 'sales':
         return 'Sales Team';
@@ -165,6 +182,8 @@ const MasterTracker: React.FC = () => {
   };
 
   const getStatusDisplayName = (status: string) => {
+    if (!status) return 'Unknown';
+
     switch (status.toLowerCase()) {
       case 'sales':
         return 'Sales';
@@ -177,30 +196,35 @@ const MasterTracker: React.FC = () => {
       case 'completed':
         return 'Completed';
       default:
-        return status.charAt(0).toUpperCase() + status.slice(1);
+        return status && typeof status === 'string' 
+          ? status.charAt(0).toUpperCase() + status.slice(1)
+          : 'Unknown Status';
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-rose-50">
-      <ModuleHeader
+    <>
+      <ModuleContainer
         title="Master Tracker"
         subtitle="Read-only overview of all projects and stages across all departments - No editing allowed"
         icon={BarChart3}
         iconColor="text-white"
         iconBgColor="bg-gradient-to-r from-red-500 to-red-600"
-      >
-        <div className="flex items-center space-x-3">
-          {/* Read-only indicator */}
-          <div className="flex items-center bg-red-400 text-white px-3 py-1 rounded-lg text-sm">
-            <Eye className="w-4 h-4 mr-1" />
-            View Only
+        className="bg-gradient-to-br from-red-50 via-white to-rose-50"
+        maxWidth="7xl"
+        fullViewport={true}
+        headerActions={
+          <div className="flex items-center space-x-3">
+            {/* Read-only indicator */}
+            <div className="flex items-center bg-red-400 text-white px-3 py-1 rounded-lg text-sm">
+              <Eye className="w-4 h-4 mr-1" />
+              View Only
+            </div>
           </div>
-        </div>
-      </ModuleHeader>
-
+        }
+    >
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="flex-1 flex flex-col min-h-0">
         {/* Statistics Overview - All projects visible to all users */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 shadow-lg border border-white/50">
@@ -475,24 +499,24 @@ const MasterTracker: React.FC = () => {
                   <div className="space-y-4">
                     {filteredProjects.map((project) => {
                       const getModuleDeliveryInfo = (project: ProjectWithMilestones) => {
-                        const createdDate = project.createdAt?.toDate ? new Date(project.createdAt.toDate()) : new Date(project.createdAt);
+                        const createdDate = safeToDate(project.createdAt);
                         const deliveryDate = new Date(project.deliveryDate);
 
                         return {
-                          projectStart: createdDate.toLocaleDateString(),
+                          projectStart: safeFormatDate(createdDate),
                           salesCompleted: project.salesData?.completedAt ?
-                            (project.salesData.completedAt.toDate ? project.salesData.completedAt.toDate() : new Date(project.salesData.completedAt)).toLocaleDateString() :
+                            safeFormatDate(safeToDate(project.salesData.completedAt)) :
                             (project.status === 'sales' ? 'In Progress' : 'Not Started'),
                           designCompleted: project.designData?.completedAt ?
-                            (project.designData.completedAt.toDate ? project.designData.completedAt.toDate() : new Date(project.designData.completedAt)).toLocaleDateString() :
+                            safeFormatDate(safeToDate(project.designData.completedAt)) :
                             (project.status === 'dne' ? 'In Progress' : 'Not Started'),
                           productionCompleted: project.productionData?.completedAt ?
-                            (project.productionData.completedAt.toDate ? project.productionData.completedAt.toDate() : new Date(project.productionData.completedAt)).toLocaleDateString() :
+                            safeFormatDate(safeToDate(project.productionData.completedAt)) :
                             (project.status === 'production' ? 'In Progress' : 'Not Started'),
                           installationCompleted: project.installationData?.completedAt ?
-                            (project.installationData.completedAt.toDate ? project.installationData.completedAt.toDate() : new Date(project.installationData.completedAt)).toLocaleDateString() :
+                            safeFormatDate(safeToDate(project.installationData.completedAt)) :
                             (project.status === 'installation' ? 'In Progress' : 'Not Started'),
-                          expectedCompletion: deliveryDate.toLocaleDateString(),
+                          expectedCompletion: safeFormatDate(deliveryDate),
                           currentStatus: project.status
                         };
                       };
@@ -615,7 +639,7 @@ const MasterTracker: React.FC = () => {
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Flow Diagram */}
-                    <div className="space-y-4">
+                    {/* <div className="space-y-4">
                       <h4 className="font-medium text-gray-800">Standard Project Flow</h4>
                       <div className="flex flex-wrap items-center gap-2 text-sm">
                         <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full whitespace-nowrap">Sales</div>
@@ -631,7 +655,7 @@ const MasterTracker: React.FC = () => {
                       <p className="text-sm text-gray-600">
                         Total estimated delivery time: <span className="font-medium">49-84 days</span>
                       </p>
-                    </div>
+                    </div> */}
 
                     {/* Recent Activity - All projects visible */}
                     <div className="space-y-4">
@@ -666,7 +690,7 @@ const MasterTracker: React.FC = () => {
                     <p className="text-gray-600">No projects found matching your filters</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-8">
                     {filteredProjects.map((project) => (
                       <div key={project.id} className="relative">
                         {/* Timeline Line */}
@@ -684,16 +708,16 @@ const MasterTracker: React.FC = () => {
                           }`}></div>
 
                           {/* Project Info */}
-                          <div className="flex-1 bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+                          <div className="flex-1 bg-white/90 backdrop-blur-sm rounded-lg p-6 shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
-                                <div className="flex items-center space-x-3 mb-2">
+                                <div className="flex items-center flex-wrap gap-3 mb-3">
                                   <h4 className="text-lg font-semibold text-gray-900">{project.projectName}</h4>
-                                  <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
+                                  <span className={`px-3 py-1 rounded-full text-xs font-medium border whitespace-nowrap ${getStatusColor(project.status)}`}>
                                     {getStatusDisplayName(project.status)}
                                   </span>
                                   {project.isOverdue && (
-                                    <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">
+                                    <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium whitespace-nowrap">
                                       Overdue
                                     </span>
                                   )}
@@ -703,7 +727,7 @@ const MasterTracker: React.FC = () => {
                                   <p className="text-gray-600 mb-3">{project.description}</p>
                                 )}
 
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                                   <div>
                                     <p className="text-gray-500">Current Stage</p>
                                     <p className="font-medium">{getResponsibleTeam(project.status)}</p>
@@ -714,7 +738,7 @@ const MasterTracker: React.FC = () => {
                                   </div>
                                   <div>
                                     <p className="text-gray-500">Due Date</p>
-                                    <p className="font-medium">{new Date(project.deliveryDate).toLocaleDateString()}</p>
+                                    <p className="font-medium">{safeFormatDate(project.deliveryDate)}</p>
                                   </div>
                                   <div>
                                     <p className="text-gray-500">Days in Stage</p>
@@ -761,7 +785,7 @@ const MasterTracker: React.FC = () => {
 
             {/* Cards View */}
             {viewMode === 'cards' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
                 {filteredProjects.length === 0 ? (
                   <div className="col-span-full text-center py-12">
                     <BarChart3 className="w-16 h-16 text-gray-400 mx-auto mb-4" />
@@ -769,12 +793,19 @@ const MasterTracker: React.FC = () => {
                   </div>
                 ) : (
                   filteredProjects.map((project) => (
-                    <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300">
+                    <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300 min-h-[320px] flex flex-col">
                       <div className="flex items-start justify-between mb-4">
-                        <h4 className="text-lg font-semibold text-gray-900">{project.projectName}</h4>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
-                          {getStatusDisplayName(project.status)}
-                        </span>
+                        <h4 className="text-lg font-semibold text-gray-900 flex-1 pr-3 leading-tight">{project.projectName}</h4>
+                        <div className="flex flex-col items-end space-y-2 flex-shrink-0">
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium border whitespace-nowrap ${getStatusColor(project.status)}`}>
+                            {getStatusDisplayName(project.status)}
+                          </span>
+                          {project.isOverdue && (
+                            <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium whitespace-nowrap">
+                              Overdue
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       {project.description && (
@@ -808,7 +839,7 @@ const MasterTracker: React.FC = () => {
                         <div className="flex justify-between">
                           <span className="text-gray-500">Due Date</span>
                           <span className={`font-medium ${project.isOverdue ? 'text-red-600' : ''}`}>
-                            {new Date(project.deliveryDate).toLocaleDateString()}
+                            {safeFormatDate(project.deliveryDate)}
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -818,7 +849,7 @@ const MasterTracker: React.FC = () => {
                       </div>
 
                       {project.isOverdue && (
-                        <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded-lg">
+                        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                           <div className="flex items-center text-red-700 text-sm">
                             <AlertTriangle className="w-4 h-4 mr-2" />
                             Project is overdue
@@ -826,12 +857,14 @@ const MasterTracker: React.FC = () => {
                         </div>
                       )}
 
-                      <button
-                        onClick={() => setSelectedProject(project)}
-                        className="w-full mt-4 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-2 px-4 rounded-lg transition-all duration-200"
-                      >
-                        View Details
-                      </button>
+                      <div className="mt-auto pt-4">
+                        <button
+                          onClick={() => setSelectedProject(project)}
+                          className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-2 px-4 rounded-lg transition-all duration-200 font-medium"
+                        >
+                          View Details
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -894,14 +927,16 @@ const MasterTracker: React.FC = () => {
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getStatusColor(project.status)}`}>
-                                {getStatusDisplayName(project.status)}
-                              </span>
-                              {project.isOverdue && (
-                                <span className="ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
-                                  Overdue
+                              <div className="flex flex-col space-y-1">
+                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border w-fit ${getStatusColor(project.status)}`}>
+                                  {getStatusDisplayName(project.status)}
                                 </span>
-                              )}
+                                {project.isOverdue && (
+                                  <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 w-fit">
+                                    Overdue
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="flex items-center">
@@ -925,7 +960,7 @@ const MasterTracker: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               <span className={project.isOverdue ? 'text-red-600 font-medium' : ''}>
-                                {new Date(project.deliveryDate).toLocaleDateString()}
+                                {safeFormatDate(project.deliveryDate)}
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -954,16 +989,17 @@ const MasterTracker: React.FC = () => {
             )}
           </>
         )}
-
-        {/* Enhanced Project Detail Modal */}
-        {selectedProject && (
-          <ProjectDetailsModal
-            project={selectedProject}
-            onClose={() => setSelectedProject(null)}
-          />
-        )}
       </div>
-    </div>
+      </ModuleContainer>
+
+      {/* Enhanced Project Detail Modal */}
+      {selectedProject && (
+        <ProjectDetailsModal
+          project={selectedProject}
+          onClose={() => setSelectedProject(null)}
+        />
+      )}
+    </>
   );
 };
 

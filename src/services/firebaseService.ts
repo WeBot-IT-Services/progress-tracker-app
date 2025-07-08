@@ -12,64 +12,122 @@ import {
   orderBy,
   onSnapshot,
   serverTimestamp,
-  Timestamp
+  Timestamp,
+  runTransaction
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage, isDevelopmentMode } from '../config/firebase';
-import { localData } from './localData';
 
 // Types
+export interface DesignData {
+  status: 'pending' | 'partial' | 'completed';
+  assignedAt?: Date;
+  completedAt?: Date;
+  partialCompletedAt?: Date;
+  deliveryDate?: Date;
+  lastModified?: Date;
+  hasFlowedFromPartial?: boolean;
+}
+
+export interface ProductionData {
+  assignedAt?: Date;
+  completedAt?: Date;
+  deliveryDate?: Date;
+  lastModified?: Date;
+  milestones?: Milestone[];
+}
+
+export interface InstallationData {
+  assignedAt?: Date;
+  completedAt?: Date;
+  deliveryDate?: Date;
+  lastModified?: Date;
+  notes?: string;
+  milestoneProgress?: Record<string, boolean>;
+}
+
+export interface SalesData {
+  assignedAt?: Date;
+  completedAt?: Date;
+  deliveryDate?: Date;
+  lastModified?: Date;
+}
+
+export interface PhotoMetadata {
+  uploadedAt: Date;
+  uploadedBy: string;
+}
+
 export interface Project {
   id?: string;
   projectName: string;
+  name?: string;
   description?: string;
-  amount?: number;
-  deliveryDate: string;
-  status: 'sales' | 'dne' | 'production' | 'installation' | 'completed';
-  createdBy: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  amount: number;
+  estimatedCompletionDate: Date;
+  deliveryDate?: string;
+  completionDate?: string;
+  status: ProjectStatus;
+  progress?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+  createdBy?: string;
+  customerName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  notes?: string;
   assignedTo?: string;
   priority?: 'low' | 'medium' | 'high';
-  progress?: number;
+  projectType?: string;
   files?: string[];
-  // Enhanced fields for better tracking
-  salesData?: {
-    deliveryDate?: Date;
-    completedAt?: Date;
-    lastModified: Date;
-  };
-  designData?: {
-    status: 'pending' | 'partial' | 'completed';
-    hasFlowedFromPartial?: boolean;
-    partialCompletedAt?: Date;
-    completedAt?: Date;
-    deliveryDate?: Date;
-    lastModified: Date;
-  };
-  productionData?: {
-    assignedAt?: Date;
-    deliveryDate?: Date;
-    completedAt?: Date;
-    lastModified: Date;
-  };
-  installationData?: {
-    milestoneProgress?: Record<string, {
-      status: 'pending' | 'in-progress' | 'completed';
-      startedAt?: Date;
-      completedAt?: Date;
-    }>;
-    deliveryDate?: Date;
-    completedAt?: Date;
-    lastModified: Date;
-  };
-  photoMetadata?: Array<{
-    url: string;
-    date: string;
-    milestoneId?: string;
-    uploadedBy: string;
-    uploadedAt: string;
-  }>;
+  designData?: DesignData;
+  productionData?: ProductionData;
+  installationData?: InstallationData;
+  salesData?: SalesData;
+  photoMetadata?: PhotoMetadata[];
+}
+
+export interface User {
+  id?: string;
+  uid?: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'sales' | 'designer' | 'production' | 'installation';
+  employeeId?: string;
+  status: 'active' | 'inactive';
+  createdAt?: Date;
+  updatedAt?: Date;
+  lastLogin?: Date;
+  isTemporary?: boolean;
+  passwordSet?: boolean;
+}
+
+export interface MilestoneImage {
+  id?: string;
+  url: string;
+  caption?: string;
+  uploadedAt?: Date;
+  uploadedBy?: string;
+}
+
+export interface Milestone {
+  id?: string;
+  projectId: string;
+  title: string;
+  description: string;
+  status: 'pending' | 'in-progress' | 'completed';
+  startDate?: Date;
+  completionDate?: Date;
+  completedDate?: Date; // Legacy support
+  dueDate?: Date;
+  progress?: number;
+  assignedTo?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+  images?: string[];
+  files?: string[];
+  module?: 'production' | 'installation';
 }
 
 export interface Complaint {
@@ -77,588 +135,871 @@ export interface Complaint {
   title: string;
   description: string;
   customerName: string;
-  projectId: string;
+  projectId?: string;
   status: 'open' | 'in-progress' | 'resolved';
-  priority: 'high' | 'medium' | 'low';
+  priority: 'low' | 'medium' | 'high';
   department: 'sales' | 'designer' | 'production' | 'installation';
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  createdBy?: string;
   assignedTo?: string;
-  createdBy: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+  images?: string[];
   files?: string[];
 }
 
-export interface User {
-  id?: string;
+export type ProjectStatus = 'sales' | 'design' | 'production' | 'installation' | 'completed' | 'cancelled' | 'dne';
+
+export interface CompletionPhoto {
+  id: string;
+  url: string;
+  caption?: string;
+  uploadedAt?: Date;
+  uploadedBy?: string;
+}
+
+export interface InstallationPhoto {
+  id: string;
+  url: string;
+  caption?: string;
+  uploadedAt?: Date;
+  uploadedBy?: string;
+}
+
+export interface FileMetadata {
+  id: string;
   name: string;
-  email: string;
-  role: 'admin' | 'sales' | 'designer' | 'production' | 'installation';
-  status: 'active' | 'inactive';
-  createdAt: Timestamp;
-  lastLogin?: Timestamp;
-  avatar?: string;
+  url: string;
+  type: string;
+  size: number;
+  uploadedAt: Date;
+  uploadedBy: string;
 }
 
-export interface Milestone {
-  id?: string;
-  projectId: string;
-  title: string;
-  status: 'pending' | 'in-progress' | 'completed';
-  startDate: string;
-  completedDate?: string;
-  assignedTo?: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-  images?: Array<{
-    id: string;
-    url: string;
-    caption?: string;
-    uploadedAt: Date;
-    uploadedBy: string;
-  }>;
-}
-
-// Check if we should use local data (when Firebase is not available)
-// Fixed: Only use local data when Firestore is truly unavailable, not as persistent fallback
-const shouldUseLocalData = () => {
-  // Only use local data in development mode AND when db is not initialized
-  // Remove persistent localStorage flag that was causing data override issues
-  return isDevelopmentMode && !db;
-};
-
-// Helper function to test Firestore connectivity
-const testFirestoreConnection = async (): Promise<boolean> => {
-  if (!db) return false;
-
-  try {
-    // Simple connectivity test - try to read from a collection
-    await getDocs(query(collection(db, 'projects'), orderBy('createdAt', 'desc')));
-    return true;
-  } catch (error) {
-    console.warn('Firestore connectivity test failed:', error);
-    return false;
-  }
-};
-
-// Helper function to clear any persistent local data flags
-const clearLocalDataFlags = () => {
-  localStorage.removeItem('useLocalData');
-};
-
-// Projects Service
+// Projects Service - Firebase Only
 export const projectsService = {
-  // Create project with proper status flow (starts in 'sales' status)
+  // Create project
   async createProject(project: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    // Clear any persistent local data flags on startup
-    clearLocalDataFlags();
-
-    if (shouldUseLocalData()) {
-      console.log('Using local data (development mode, Firestore not available)');
-      return await localData.createProject(project);
+    if (!db) {
+      throw new Error('Firebase not initialized');
     }
 
     try {
       console.log('Creating project in Firestore:', project);
       const docRef = await addDoc(collection(db, 'projects'), {
         ...project,
-        status: 'sales', // Always start in sales status
+        status: 'sales',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
-      console.log('Project created successfully in Firestore:', docRef.id);
+      console.log('Project created successfully with ID:', docRef.id);
       return docRef.id;
     } catch (error) {
-      console.error('Firebase createProject failed:', error);
-      // Only use local data as temporary fallback, don't set persistent flag
-      console.warn('Falling back to local data for this operation only');
-      return await localData.createProject(project);
+      console.error('Error creating project:', error);
+      throw error;
     }
   },
 
   // Get all projects
   async getProjects(): Promise<Project[]> {
-    // Clear any persistent local data flags
-    clearLocalDataFlags();
-
-    if (shouldUseLocalData()) {
-      console.log('Using local data (development mode, Firestore not available)');
-      return await localData.getProjects();
+    if (!db) {
+      throw new Error('Firebase not initialized');
     }
 
     try {
-      console.log('Fetching projects from Firestore...');
       const querySnapshot = await getDocs(
         query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
       );
-      const projects = querySnapshot.docs.map(doc => ({
+      return querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      } as Project));
-      console.log('Projects fetched successfully from Firestore:', projects.length);
-      return projects;
+      })) as Project[];
     } catch (error) {
-      console.error('Firebase getProjects failed:', error);
-      // Only use local data as temporary fallback, don't set persistent flag
-      console.warn('Falling back to local data for this operation only');
-      return await localData.getProjects();
+      console.error('Error getting projects:', error);
+      throw error;
     }
   },
 
   // Get project by ID
-  async getProject(id: string): Promise<Project | null> {
-    // Clear any persistent local data flags
-    clearLocalDataFlags();
-
-    if (shouldUseLocalData()) {
-      console.log('Using local data (development mode, Firestore not available)');
-      return await localData.getProject(id);
+  async getProject(id: string): Promise<Project> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
     }
 
     try {
-      console.log('Fetching project from Firestore:', id);
-      const docSnap = await getDoc(doc(db, 'projects', id));
+      const docRef = doc(db, 'projects', id);
+      const docSnap = await getDoc(docRef);
+      
       if (docSnap.exists()) {
-        const project = { id: docSnap.id, ...docSnap.data() } as Project;
-        console.log('Project fetched successfully from Firestore:', project);
-        return project;
+        return { id: docSnap.id, ...docSnap.data() } as Project;
+      } else {
+        throw new Error('Project not found');
       }
-      console.log('Project not found in Firestore:', id);
-      return null;
     } catch (error) {
-      console.error('Firebase getProject failed:', error);
-      // Only use local data as temporary fallback, don't set persistent flag
-      console.warn('Falling back to local data for this operation only');
-      return await localData.getProject(id);
+      console.error('Error getting project:', error);
+      throw error;
     }
   },
 
-  // Update project with automatic milestone creation for production
+  // Update project
   async updateProject(id: string, updates: Partial<Project>): Promise<void> {
-    // Clear any persistent local data flags
-    clearLocalDataFlags();
-
-    if (shouldUseLocalData()) {
-      console.log('Using local data (development mode, Firestore not available)');
-      await localData.updateProject(id, updates);
-      // Auto-create default milestones when project moves to production
-      if (updates.status === 'production') {
-        await this.createDefaultProductionMilestones(id);
-      }
-      return;
+    if (!db) {
+      throw new Error('Firebase not initialized');
     }
 
     try {
-      console.log('Updating project in Firestore:', id, updates);
-
-      // Handle nested object updates properly
-      const updateData: any = {
+      const docRef = doc(db, 'projects', id);
+      await updateDoc(docRef, {
         ...updates,
         updatedAt: serverTimestamp()
-      };
-
-      // Handle nested field updates for Firestore
-      Object.keys(updates).forEach(key => {
-        if (key.includes('.')) {
-          // Handle dot notation for nested updates
-          const value = updates[key as keyof Project];
-          updateData[key] = value;
-          delete updateData[key.replace('.', '')];
-        }
       });
-
-      await updateDoc(doc(db, 'projects', id), updateData);
-      console.log('Project updated successfully in Firestore');
-
-      // Auto-create default milestones when project moves to production
-      if (updates.status === 'production') {
-        await this.createDefaultProductionMilestones(id);
-      }
+      console.log('Project updated successfully');
     } catch (error) {
-      console.error('Firebase updateProject failed:', error);
-      // Only use local data as temporary fallback, don't set persistent flag
-      console.warn('Falling back to local data for this operation only');
-      await localData.updateProject(id, updates);
-      if (updates.status === 'production') {
-        await this.createDefaultProductionMilestones(id);
-      }
-    }
-  },
-
-  // Create default production milestones
-  async createDefaultProductionMilestones(projectId: string): Promise<void> {
-    try {
-      // Check if default milestones already exist first
-      const existingMilestones = await this.getMilestonesByProject(projectId);
-
-      // If there are already milestones for this project, don't create defaults
-      if (existingMilestones.length > 0) {
-        console.log('Milestones already exist for project:', projectId);
-        return;
-      }
-
-      const defaultMilestones = [
-        {
-          projectId,
-          title: 'Assembly/Welding',
-          status: 'pending' as const,
-          startDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 weeks from now
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        },
-        {
-          projectId,
-          title: 'Painting',
-          status: 'pending' as const,
-          startDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 weeks from now
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        }
-      ];
-
-      // Create all default milestones
-      for (const milestone of defaultMilestones) {
-        await addDoc(collection(db, 'milestones'), milestone);
-      }
-
-      console.log('Created default milestones for project:', projectId);
-    } catch (error) {
-      console.error('Error creating default production milestones:', error);
-    }
-  },
-
-  // Get milestones by project (moved from milestonesService for dependency)
-  async getMilestonesByProject(projectId: string): Promise<Milestone[]> {
-    // Clear any persistent local data flags
-    clearLocalDataFlags();
-
-    if (shouldUseLocalData()) {
-      console.log('Using local data (development mode, Firestore not available)');
-      return await localData.getMilestonesByProject(projectId);
-    }
-
-    try {
-      console.log('Fetching milestones from Firestore for project:', projectId);
-
-      // First try with orderBy, if it fails due to index, try without orderBy
-      let q = query(
-        collection(db, 'milestones'),
-        where('projectId', '==', projectId),
-        orderBy('createdAt', 'asc')
-      );
-
-      let querySnapshot;
-      try {
-        querySnapshot = await getDocs(q);
-      } catch (indexError) {
-        // If index error, try without orderBy and sort in memory
-        console.warn('Index not available, querying without orderBy:', indexError);
-        q = query(
-          collection(db, 'milestones'),
-          where('projectId', '==', projectId)
-        );
-        querySnapshot = await getDocs(q);
-      }
-
-      const milestones = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Milestone));
-
-      console.log('Milestones fetched successfully from Firestore:', milestones.length);
-
-      // Sort in memory if we couldn't use orderBy
-      return milestones.sort((a, b) => {
-        const aDate = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
-        const bDate = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
-        return aDate.getTime() - bDate.getTime();
-      });
-    } catch (error) {
-      console.error('Firebase getMilestonesByProject failed:', error);
-      // Only use local data as temporary fallback, don't set persistent flag
-      console.warn('Falling back to local data for this operation only');
-      return await localData.getMilestonesByProject(projectId);
+      console.error('Error updating project:', error);
+      throw error;
     }
   },
 
   // Delete project
   async deleteProject(id: string): Promise<void> {
-    await deleteDoc(doc(db, 'projects', id));
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = doc(db, 'projects', id);
+      await deleteDoc(docRef);
+      console.log('Project deleted successfully');
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      throw error;
+    }
   },
 
   // Get projects by status
-  async getProjectsByStatus(status: string): Promise<Project[]> {
-    const q = query(
-      collection(db, 'projects'),
-      where('status', '==', status),
-      orderBy('createdAt', 'desc')
-    );
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as Project));
+  async getProjectsByStatus(status: ProjectStatus): Promise<Project[]> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const querySnapshot = await getDocs(
+        query(
+          collection(db, 'projects'),
+          where('status', '==', status),
+          orderBy('createdAt', 'desc')
+        )
+      );
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Project[];
+    } catch (error) {
+      console.error('Error getting projects by status:', error);
+      throw error;
+    }
   },
 
-  // Real-time listener for projects
-  onProjectsChange(callback: (projects: Project[]) => void) {
+  // Real-time project listener
+  subscribeToProjects(callback: (projects: Project[]) => void): () => void {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
     return onSnapshot(
       query(collection(db, 'projects'), orderBy('createdAt', 'desc')),
-      (snapshot) => {
-        const projects = snapshot.docs.map(doc => ({
+      (querySnapshot) => {
+        const projects = querySnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
-        } as Project));
+        })) as Project[];
         callback(projects);
+      },
+      (error) => {
+        console.error('Error in project subscription:', error);
       }
     );
-  }
-};
-
-// Complaints Service
-export const complaintsService = {
-  // Create complaint
-  async createComplaint(complaint: Omit<Complaint, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    const docRef = await addDoc(collection(db, 'complaints'), {
-      ...complaint,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-    return docRef.id;
-  },
-
-  // Get all complaints
-  async getComplaints(): Promise<Complaint[]> {
-    const querySnapshot = await getDocs(
-      query(collection(db, 'complaints'), orderBy('createdAt', 'desc'))
-    );
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as Complaint));
-  },
-
-  // Update complaint
-  async updateComplaint(id: string, updates: Partial<Complaint>): Promise<void> {
-    await updateDoc(doc(db, 'complaints', id), {
-      ...updates,
-      updatedAt: serverTimestamp()
-    });
-  },
-
-  // Delete complaint
-  async deleteComplaint(id: string): Promise<void> {
-    await deleteDoc(doc(db, 'complaints', id));
-  },
-
-  // Real-time listener for complaints
-  onComplaintsChange(callback: (complaints: Complaint[]) => void) {
-    return onSnapshot(
-      query(collection(db, 'complaints'), orderBy('createdAt', 'desc')),
-      (snapshot) => {
-        const complaints = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        } as Complaint));
-        callback(complaints);
-      }
-    );
-  }
-};
-
-// Users Service
-export const usersService = {
-  // Create user profile with UID as document ID
-  async createUser(user: Omit<User, 'id' | 'createdAt'>): Promise<string> {
-    if (!user.uid) {
-      throw new Error('User UID is required for user creation');
-    }
-
-    // Use setDoc with UID as document ID instead of addDoc
-    await setDoc(doc(db, 'users', user.uid), {
-      ...user,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-    return user.uid;
-  },
-
-  // Get all users
-  async getUsers(): Promise<User[]> {
-    const querySnapshot = await getDocs(
-      query(collection(db, 'users'), orderBy('createdAt', 'desc'))
-    );
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as User));
-  },
-
-  // Get user by email
-  async getUserByEmail(email: string): Promise<User | null> {
-    const q = query(collection(db, 'users'), where('email', '==', email));
-    const querySnapshot = await getDocs(q);
-    if (!querySnapshot.empty) {
-      const doc = querySnapshot.docs[0];
-      return { id: doc.id, ...doc.data() } as User;
-    }
-    return null;
-  },
-
-  // Update user
-  async updateUser(id: string, updates: Partial<User>): Promise<void> {
-    await updateDoc(doc(db, 'users', id), updates);
-  },
-
-  // Update last login
-  async updateLastLogin(id: string): Promise<void> {
-    await updateDoc(doc(db, 'users', id), {
-      lastLogin: serverTimestamp()
-    });
-  }
-};
-
-// Milestones Service
-export const milestonesService = {
-  // Create milestone
-  async createMilestone(milestone: Omit<Milestone, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    const docRef = await addDoc(collection(db, 'milestones'), {
-      ...milestone,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-    return docRef.id;
   },
 
   // Get milestones by project
   async getMilestonesByProject(projectId: string): Promise<Milestone[]> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
     try {
-      // First try with orderBy, if it fails due to index, try without orderBy
-      let q = query(
-        collection(db, 'milestones'),
-        where('projectId', '==', projectId),
-        orderBy('createdAt', 'asc')
-      );
-
-      let querySnapshot;
-      try {
-        querySnapshot = await getDocs(q);
-      } catch (indexError) {
-        // If index error, try without orderBy and sort in memory
-        console.warn('Index not available, querying without orderBy:', indexError);
-        q = query(
+      const querySnapshot = await getDocs(
+        query(
           collection(db, 'milestones'),
-          where('projectId', '==', projectId)
-        );
-        querySnapshot = await getDocs(q);
-      }
-
-      const milestones = querySnapshot.docs.map(doc => ({
+          where('projectId', '==', projectId),
+          orderBy('createdAt', 'desc')
+        )
+      );
+      return querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      } as Milestone));
+      })) as Milestone[];
+    } catch (error) {
+      console.error('Error getting milestones by project:', error);
+      throw error;
+    }
+  },
 
-      // Sort in memory if we couldn't use orderBy
-      return milestones.sort((a, b) => {
-        const aDate = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
-        const bDate = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
-        return aDate.getTime() - bDate.getTime();
-      });
+  // Create default production milestones
+  async createDefaultProductionMilestones(projectId: string): Promise<void> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      // Check if default milestones already exist to prevent duplicates
+      const existingMilestones = await milestonesService.getMilestonesByProject(projectId);
+      const productionMilestones = existingMilestones.filter(m => m.module === 'production' || !m.module);
+      
+      if (productionMilestones.length > 0) {
+        console.log(`Production milestones already exist for project: ${projectId} (found ${productionMilestones.length})`);
+        return;
+      }
+
+      // Calculate proper start dates (today + 1 week intervals)
+      const baseDate = new Date();
+      const paintingStartDate = new Date(baseDate);
+      paintingStartDate.setDate(baseDate.getDate() + 7); // Start in 1 week
+      
+      const assemblyStartDate = new Date(paintingStartDate);
+      assemblyStartDate.setDate(paintingStartDate.getDate() + 14); // Start 2 weeks after painting
+
+      const defaultMilestones = [
+        {
+          projectId,
+          title: 'Painting',
+          description: 'Complete painting process',
+          status: 'pending' as const,
+          module: 'production' as const,
+          startDate: paintingStartDate,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        },
+        {
+          projectId,
+          title: 'Assembly/Welding',
+          description: 'Complete assembly and welding processes',
+          status: 'pending' as const,
+          module: 'production' as const,
+          startDate: assemblyStartDate,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        }
+      ];
+
+      const promises = defaultMilestones.map(milestone => 
+        addDoc(collection(db, 'milestones'), milestone)
+      );
+
+      await Promise.all(promises);
+      console.log('Default production milestones created successfully');
+    } catch (error) {
+      console.error('Error creating default production milestones:', error);
+      throw error;
+    }
+  },
+
+  // Legacy method support
+  onProjectsChange: undefined as ((callback: (projects: Project[]) => void) => () => void) | undefined,
+};
+
+// Milestones Service
+export const milestonesService = {
+  // Get milestones by project ID
+  async getMilestonesByProject(projectId: string): Promise<Milestone[]> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const querySnapshot = await getDocs(
+        query(
+          collection(db, 'milestones'),
+          where('projectId', '==', projectId),
+          orderBy('createdAt', 'desc')
+        )
+      );
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Milestone[];
     } catch (error) {
       console.error('Error getting milestones:', error);
-      return [];
+      return []; // Return empty array if no milestones found
+    }
+  },
+
+  // Create milestone
+  async createMilestone(milestone: Omit<Milestone, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = await addDoc(collection(db, 'milestones'), {
+        ...milestone,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      return docRef.id;
+    } catch (error) {
+      console.error('Error creating milestone:', error);
+      throw error;
     }
   },
 
   // Update milestone
   async updateMilestone(id: string, updates: Partial<Milestone>): Promise<void> {
-    await updateDoc(doc(db, 'milestones', id), {
-      ...updates,
-      updatedAt: serverTimestamp()
-    });
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = doc(db, 'milestones', id);
+      await updateDoc(docRef, {
+        ...updates,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error updating milestone:', error);
+      throw error;
+    }
   },
 
   // Delete milestone
   async deleteMilestone(id: string): Promise<void> {
-    await deleteDoc(doc(db, 'milestones', id));
-  },
-
-  // Update milestone status
-  async updateMilestoneStatus(id: string, status: 'pending' | 'in-progress' | 'completed'): Promise<void> {
-    const updates: any = {
-      status,
-      updatedAt: serverTimestamp()
-    };
-
-    if (status === 'in-progress') {
-      updates.startedAt = serverTimestamp();
-    } else if (status === 'completed') {
-      updates.completedAt = serverTimestamp();
+    if (!db) {
+      throw new Error('Firebase not initialized');
     }
 
-    await updateDoc(doc(db, 'milestones', id), updates);
+    try {
+      const docRef = doc(db, 'milestones', id);
+      await deleteDoc(docRef);
+    } catch (error) {
+      console.error('Error deleting milestone:', error);
+      throw error;
+    }
   }
 };
 
-// File Upload Service
-export const fileService = {
-  // Upload file
-  async uploadFile(file: File, path: string): Promise<string> {
-    const storageRef = ref(storage, path);
-    const snapshot = await uploadBytes(storageRef, file);
-    return await getDownloadURL(snapshot.ref);
+// Users Service
+export const usersService = {
+  // Get all users
+  async getUsers(): Promise<User[]> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const querySnapshot = await getDocs(collection(db, 'users'));
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as User[];
+    } catch (error) {
+      console.error('Error getting users:', error);
+      throw error;
+    }
   },
 
-  // Delete file
-  async deleteFile(path: string): Promise<void> {
-    const storageRef = ref(storage, path);
-    await deleteObject(storageRef);
+  // Get user by ID
+  async getUser(id: string): Promise<User> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = doc(db, 'users', id);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        return { id: docSnap.id, ...docSnap.data() } as User;
+      } else {
+        throw new Error('User not found');
+      }
+    } catch (error) {
+      console.error('Error getting user:', error);
+      throw error;
+    }
+  },
+
+  // Create user
+  async createUser(user: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = await addDoc(collection(db, 'users'), {
+        ...user,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      return docRef.id;
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
+  },
+
+  // Update user
+  async updateUser(id: string, updates: Partial<User>): Promise<void> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = doc(db, 'users', id);
+      await updateDoc(docRef, {
+        ...updates,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error updating user:', error);
+      throw error;
+    }
+  },
+
+  // Delete user
+  async deleteUser(id: string): Promise<void> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = doc(db, 'users', id);
+      await deleteDoc(docRef);
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
+  },
+
+  // Get user by employee ID
+  async getUserByEmployeeId(employeeId: string): Promise<User | null> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const querySnapshot = await getDocs(
+        query(collection(db, 'users'), where('employeeId', '==', employeeId))
+      );
+      
+      if (querySnapshot.empty) {
+        return null;
+      }
+
+      const userDoc = querySnapshot.docs[0];
+      return { id: userDoc.id, ...userDoc.data() } as User;
+    } catch (error) {
+      console.error('Error getting user by employee ID:', error);
+      throw error;
+    }
+  },
+
+  // Update last login
+  async updateLastLogin(userId: string): Promise<void> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = doc(db, 'users', userId);
+      await updateDoc(docRef, {
+        lastLogin: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error updating last login:', error);
+      throw error;
+    }
+  },
+};
+
+// Complaints Service
+export const complaintsService = {
+  // Get all complaints
+  async getComplaints(): Promise<Complaint[]> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const querySnapshot = await getDocs(
+        query(collection(db, 'complaints'), orderBy('createdAt', 'desc'))
+      );
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Complaint[];
+    } catch (error) {
+      console.error('Error getting complaints:', error);
+      throw error;
+    }
+  },
+
+  // Create complaint
+  async createComplaint(complaint: Omit<Complaint, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = await addDoc(collection(db, 'complaints'), {
+        ...complaint,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      return docRef.id;
+    } catch (error) {
+      console.error('Error creating complaint:', error);
+      throw error;
+    }
+  },
+
+  // Update complaint
+  async updateComplaint(id: string, updates: Partial<Complaint>): Promise<void> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = doc(db, 'complaints', id);
+      await updateDoc(docRef, {
+        ...updates,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error updating complaint:', error);
+      throw error;
+    }
+  },
+
+  // Delete complaint
+  async deleteComplaint(id: string): Promise<void> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      const docRef = doc(db, 'complaints', id);
+      await deleteDoc(docRef);
+    } catch (error) {
+      console.error('Error deleting complaint:', error);
+      throw error;
+    }
   }
 };
 
 // Statistics Service
 export const statisticsService = {
   // Get dashboard statistics
-  async getDashboardStats() {
-    const [projects, complaints] = await Promise.all([
-      projectsService.getProjects(),
-      complaintsService.getComplaints()
-    ]);
+  async getDashboardStats(): Promise<{
+    activeProjects: number;
+    completedProjects: number;
+    inProduction: number;
+    openComplaints: number;
+    totalProjects: number;
+    totalComplaints: number;
+  }> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
 
-    const activeProjects = projects.filter(p => p.status !== 'completed').length;
-    const completedProjects = projects.filter(p => p.status === 'completed').length;
-    const inProduction = projects.filter(p => p.status === 'production').length;
-    const openComplaints = complaints.filter(c => c.status === 'open').length;
+    try {
+      const [projectsSnapshot, complaintsSnapshot] = await Promise.all([
+        getDocs(collection(db, 'projects')),
+        getDocs(collection(db, 'complaints'))
+      ]);
 
-    return {
-      activeProjects,
-      completedProjects,
-      inProduction,
-      openComplaints,
-      totalProjects: projects.length,
-      totalComplaints: complaints.length
-    };
+      const projects = projectsSnapshot.docs.map(doc => doc.data() as Project);
+      const complaints = complaintsSnapshot.docs.map(doc => doc.data() as Complaint);
+
+      return {
+        totalProjects: projects.length,
+        activeProjects: projects.filter(p => p.status !== 'completed' && p.status !== 'cancelled').length,
+        completedProjects: projects.filter(p => p.status === 'completed').length,
+        inProduction: projects.filter(p => p.status === 'production').length,
+        totalComplaints: complaints.length,
+        openComplaints: complaints.filter(c => c.status === 'open').length
+      };
+    } catch (error) {
+      console.error('Error getting dashboard stats:', error);
+      throw error;
+    }
   }
 };
 
-// Initialize service and clear any persistent local data flags
-export const initializeFirebaseService = () => {
-  console.log('🔥 Initializing Firebase Service...');
+// File Service
+export const fileService = {
+  // Upload file
+  async uploadFile(file: File, path: string): Promise<string> {
+    if (!storage) {
+      throw new Error('Firebase storage not initialized');
+    }
 
-  // Clear any persistent local data flags that might cause data override issues
-  clearLocalDataFlags();
+    try {
+      const storageRef = ref(storage, path);
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      return downloadURL;
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      throw error;
+    }
+  },
 
-  // Test Firestore connectivity if in development mode
-  if (isDevelopmentMode && db) {
-    testFirestoreConnection().then(isConnected => {
-      if (isConnected) {
-        console.log('✅ Firestore connectivity confirmed - using Firestore as primary data source');
-      } else {
-        console.log('⚠️ Firestore connectivity issues detected - will use local fallback when needed');
-      }
-    }).catch(error => {
-      console.warn('⚠️ Firestore connectivity test failed:', error);
-    });
+  // Delete file
+  async deleteFile(path: string): Promise<void> {
+    if (!storage) {
+      throw new Error('Firebase storage not initialized');
+    }
+
+    try {
+      const storageRef = ref(storage, path);
+      await deleteObject(storageRef);
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      throw error;
+    }
   }
+};
 
-  console.log('✅ Firebase Service initialized successfully');
+// Workflow Service
+export const workflowService = {
+  // Check if transition is allowed
+  canTransitionTo(currentStatus: ProjectStatus, newStatus: ProjectStatus): boolean {
+    const transitions: Record<ProjectStatus, ProjectStatus[]> = {
+      sales: ['design', 'cancelled'],
+      design: ['production', 'installation', 'cancelled'],
+      production: ['installation', 'cancelled'],
+      installation: ['completed', 'cancelled'],
+      completed: [],
+      cancelled: [],
+      dne: ['design', 'cancelled']
+    };
+
+    return transitions[currentStatus]?.includes(newStatus) || false;
+  },
+
+  // Get next possible statuses
+  getNextStatuses(currentStatus: ProjectStatus): ProjectStatus[] {
+    const transitions: Record<ProjectStatus, ProjectStatus[]> = {
+      sales: ['design', 'cancelled'],
+      design: ['production', 'installation', 'cancelled'],
+      production: ['installation', 'cancelled'],
+      installation: ['completed', 'cancelled'],
+      completed: [],
+      cancelled: [],
+      dne: ['design', 'cancelled']
+    };
+
+    return transitions[currentStatus] || [];
+  },
+
+  // Update project status
+  async updateProjectStatus(project: Project, newStatus: ProjectStatus): Promise<void> {
+    if (!project.id) {
+      throw new Error('Project ID is required');
+    }
+
+    if (!this.canTransitionTo(project.status, newStatus)) {
+      throw new Error(`Cannot transition from ${project.status} to ${newStatus}`);
+    }
+
+    await projectsService.updateProject(project.id, {
+      status: newStatus,
+      updatedAt: new Date()
+    });
+  },
+
+  // Get progress percentage
+  getProgressPercentage(status: ProjectStatus): number {
+    const progressMap: Record<ProjectStatus, number> = {
+      sales: 20,
+      design: 40,
+      production: 60,
+      installation: 80,
+      completed: 100,
+      cancelled: 0,
+      dne: 30
+    };
+
+    return progressMap[status] || 0;
+  },
+
+  // Get status info
+  getStatusInfo(status: ProjectStatus): { color: string; label: string; description: string } {
+    const statusInfo: Record<ProjectStatus, { color: string; label: string; description: string }> = {
+      sales: { color: 'bg-green-100 text-green-800', label: 'Sales', description: 'Project in sales phase' },
+      design: { color: 'bg-blue-100 text-blue-800', label: 'Design', description: 'Project in design phase' },
+      production: { color: 'bg-orange-100 text-orange-800', label: 'Production', description: 'Project in production phase' },
+      installation: { color: 'bg-purple-100 text-purple-800', label: 'Installation', description: 'Project in installation phase' },
+      completed: { color: 'bg-gray-100 text-gray-800', label: 'Completed', description: 'Project completed' },
+      cancelled: { color: 'bg-red-100 text-red-800', label: 'Cancelled', description: 'Project cancelled' },
+      dne: { color: 'bg-yellow-100 text-yellow-800', label: 'DNE', description: 'Project does not exist or pending' }
+    };
+
+    return statusInfo[status];
+  },
+
+  // Transition methods for specific workflows
+  async transitionDesignToProduction(projectId: string, deliveryDate?: string): Promise<void> {
+    const project = await projectsService.getProject(projectId);
+    
+    if (!this.canTransitionTo(project.status, 'production')) {
+      throw new Error('Cannot transition to production from current status');
+    }
+
+    await projectsService.updateProject(projectId, {
+      status: 'production',
+      deliveryDate,
+      productionData: {
+        assignedAt: new Date(),
+        lastModified: new Date()
+      }
+    });
+  },
+
+  async transitionDesignToInstallation(projectId: string, deliveryDate?: string): Promise<void> {
+    const project = await projectsService.getProject(projectId);
+    
+    if (!this.canTransitionTo(project.status, 'installation')) {
+      throw new Error('Cannot transition to installation from current status');
+    }
+
+    await projectsService.updateProject(projectId, {
+      status: 'installation',
+      deliveryDate,
+      installationData: {
+        assignedAt: new Date(),
+        lastModified: new Date()
+      }
+    });
+  },
+
+  async transitionProductionToInstallation(projectId: string, deliveryDate?: string): Promise<void> {
+    const project = await projectsService.getProject(projectId);
+    
+    if (!this.canTransitionTo(project.status, 'installation')) {
+      throw new Error('Cannot transition to installation from current status');
+    }
+
+    await projectsService.updateProject(projectId, {
+      status: 'installation',
+      deliveryDate,
+      installationData: {
+        assignedAt: new Date(),
+        lastModified: new Date()
+      }
+    });
+  },
+
+  async transitionInstallationToCompleted(projectId: string, deliveryDate?: string): Promise<void> {
+    const project = await projectsService.getProject(projectId);
+    
+    if (!this.canTransitionTo(project.status, 'completed')) {
+      throw new Error('Cannot transition to completed from current status');
+    }
+
+    await projectsService.updateProject(projectId, {
+      status: 'completed',
+      deliveryDate,
+      completionDate: new Date().toISOString(),
+      installationData: {
+        ...project.installationData,
+        completedAt: new Date()
+      }
+    });
+  },
+};
+
+// Admin User Service
+export const adminUserService = {
+  // Check password status
+  async checkPasswordStatus(email: string): Promise<{
+    exists: boolean;
+    needsPassword: boolean;
+    message: string;
+    isTemporary?: boolean;
+    passwordSet?: boolean;
+    user?: User;
+    error?: string;
+  }> {
+    try {
+      const querySnapshot = await getDocs(
+        query(collection(db, 'users'), where('email', '==', email))
+      );
+
+      if (querySnapshot.empty) {
+        return {
+          exists: false,
+          needsPassword: false,
+          message: 'User not found'
+        };
+      }
+
+      const userDoc = querySnapshot.docs[0];
+      const userData = userDoc.data() as User;
+
+      return {
+        exists: true,
+        needsPassword: !userData.passwordSet,
+        message: userData.passwordSet ? 'Password already set' : 'Password needs to be set',
+        isTemporary: userData.isTemporary,
+        passwordSet: userData.passwordSet,
+        user: { id: userDoc.id, ...userData }
+      };
+    } catch (error) {
+      console.error('Error checking password status:', error);
+      return {
+        exists: false,
+        needsPassword: false,
+        message: 'Error checking password status',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  },
+
+  // Update password status
+  async updatePasswordStatus(userId: string, passwordSet: boolean = true, isTemporary: boolean = false): Promise<void> {
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        passwordSet,
+        isTemporary,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error updating password status:', error);
+      throw error;
+    }
+  }
+};
+
+// Initialize Firebase service
+export const initializeFirebaseService = () => {
+  console.log('Firebase service initialized');
+  
+  if (isDevelopmentMode) {
+    console.log('Development mode detected');
+  }
+  
+  if (!db) {
+    console.warn('Firestore not initialized');
+  }
+  
+  if (!storage) {
+    console.warn('Firebase Storage not initialized');
+  }
+};
+
+// Export all services
+export {
+  projectsService as default
 };

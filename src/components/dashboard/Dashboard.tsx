@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import NetworkStatus from '../common/NetworkStatus';
 import SyncStatusDashboard from '../common/SyncStatusDashboard';
 import MysteelLogo from '../common/MysteelLogo';
+import VersionDisplay from '../common/VersionDisplay';
 import { statisticsService } from '../../services/firebaseService';
 // import { testingMode } from '../../utils/testingMode';
 import {
@@ -16,7 +17,9 @@ import {
   LogOut,
   User,
   Settings,
-  Activity
+  Activity,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
@@ -32,6 +35,7 @@ const Dashboard: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [showSyncDashboard, setShowSyncDashboard] = useState(false);
+  const [isStatsCollapsed, setIsStatsCollapsed] = useState(true);
 
   // Load statistics from Firebase
   useEffect(() => {
@@ -198,6 +202,15 @@ const Dashboard: React.FC = () => {
                 <span className="hidden sm:inline text-sm font-medium">Sync</span>
               </button>
 
+              {/* Profile Settings Button */}
+              <button
+                onClick={() => navigate('/settings')}
+                className="flex items-center space-x-1 sm:space-x-2 bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 sm:px-4 py-2 rounded-xl transition-all duration-200 hover:shadow-md group"
+              >
+                <User className="h-4 w-4" />
+                <span className="hidden sm:inline text-sm font-medium">Profile</span>
+              </button>
+
               {/* Admin Panel Button (only for admins) */}
               {currentUser?.role === 'admin' && (
                 <button
@@ -223,9 +236,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Enhanced Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-12">
-
-
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Welcome Section */}
         <div className="mb-8 sm:mb-12">
           <div className="text-center mb-6 sm:mb-8 animate-fade-in">
@@ -243,86 +254,111 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl p-6 sm:p-8 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300 mb-8 sm:mb-12">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8">
-            {/* Active Projects */}
-            <div className="group">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
-                  <BarChart3 className="h-6 w-6 text-white" />
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
-                    {loading ? '...' : stats.activeProjects}
-                  </p>
-                  <p className="text-xs text-blue-600 font-medium">In progress</p>
-                </div>
+        {/* Collapsible Project Statistics */}
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300 mb-8 sm:mb-12">
+          {/* Stats Header */}
+          <div 
+            className="flex items-center justify-between p-6 sm:p-8 cursor-pointer"
+            onClick={() => setIsStatsCollapsed(!isStatsCollapsed)}
+          >
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl shadow-lg">
+                <BarChart3 className="h-6 w-6 text-white" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Active Projects</h3>
-              <p className="text-gray-600 text-sm mb-3">Currently in progress across all departments</p>
-              <div className="bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${stats.totalProjects > 0 ? (stats.activeProjects / stats.totalProjects) * 100 : 0}%` }}
-                ></div>
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Project Statistics</h2>
+                <p className="text-sm text-gray-600">Overview of current project status</p>
               </div>
             </div>
-
-            {/* Completed Projects */}
-            <div className="group">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-green-500 to-green-600 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
-                  <DollarSign className="h-6 w-6 text-white" />
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-bold text-gray-900 group-hover:text-green-600 transition-colors">
-                    {loading ? '...' : stats.completedProjects}
-                  </p>
-                  <p className="text-xs text-green-600 font-medium">Completed</p>
-                </div>
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Completed Projects</h3>
-              <p className="text-gray-600 text-sm mb-3">Successfully delivered</p>
-              <div className="bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${stats.totalProjects > 0 ? (stats.completedProjects / stats.totalProjects) * 100 : 0}%` }}
-                ></div>
-              </div>
-            </div>
-
-            {/* In Production */}
-            <div className="group">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
-                  <Factory className="h-6 w-6 text-white" />
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-bold text-gray-900 group-hover:text-orange-600 transition-colors">
-                    {loading ? '...' : stats.inProduction}
-                  </p>
-                  <p className="text-xs text-orange-600 font-medium">In production</p>
-                </div>
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">In Production</h3>
-              <p className="text-gray-600 text-sm mb-3">Manufacturing and assembly phase</p>
-              <div className="bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-gradient-to-r from-orange-500 to-orange-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${stats.totalProjects > 0 ? (stats.inProduction / stats.totalProjects) * 100 : 0}%` }}
-                ></div>
-              </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-500">
+                {isStatsCollapsed ? 'Expand' : 'Collapse'}
+              </span>
+              {isStatsCollapsed ? (
+                <ChevronDown className="w-5 h-5 text-gray-500" />
+              ) : (
+                <ChevronUp className="w-5 h-5 text-gray-500" />
+              )}
             </div>
           </div>
 
-          {/* Last Updated */}
-          <div className="mt-6 pt-4 border-t border-gray-200 text-center">
-            {/* <div className="inline-flex items-center px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm">
-              <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-              Last updated: {new Date().toLocaleTimeString()}
-            </div> */}
+          {/* Collapsible Stats Content */}
+          <div className={`transition-all duration-300 ease-in-out overflow-hidden ${isStatsCollapsed ? 'max-h-0 opacity-0' : 'max-h-96 opacity-100'}`}>
+            <div className="px-6 sm:px-8 pb-6 sm:pb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8">
+                {/* Active Projects */}
+                <div className="group">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+                      <BarChart3 className="h-6 w-6 text-white" />
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+                        {loading ? '...' : stats.activeProjects}
+                      </p>
+                      <p className="text-xs text-blue-600 font-medium">In progress</p>
+                    </div>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Active Projects</h3>
+                  <p className="text-gray-600 text-sm mb-3">Currently in progress across all departments</p>
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${stats.totalProjects > 0 ? (stats.activeProjects / stats.totalProjects) * 100 : 0}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                {/* Completed Projects */}
+                <div className="group">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-green-500 to-green-600 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+                      <DollarSign className="h-6 w-6 text-white" />
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-gray-900 group-hover:text-green-600 transition-colors">
+                        {loading ? '...' : stats.completedProjects}
+                      </p>
+                      <p className="text-xs text-green-600 font-medium">Completed</p>
+                    </div>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Completed Projects</h3>
+                  <p className="text-gray-600 text-sm mb-3">Successfully delivered</p>
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${stats.totalProjects > 0 ? (stats.completedProjects / stats.totalProjects) * 100 : 0}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                {/* In Production */}
+                <div className="group">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+                      <Factory className="h-6 w-6 text-white" />
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-gray-900 group-hover:text-orange-600 transition-colors">
+                        {loading ? '...' : stats.inProduction}
+                      </p>
+                      <p className="text-xs text-orange-600 font-medium">In production</p>
+                    </div>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">In Production</h3>
+                  <p className="text-gray-600 text-sm mb-3">Manufacturing and assembly phase</p>
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-gradient-to-r from-orange-500 to-orange-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${stats.totalProjects > 0 ? (stats.inProduction / stats.totalProjects) * 100 : 0}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+        
         {/* Enhanced Module Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 mb-8 sm:mb-12">
           {accessibleModules.map((module, index) => {
@@ -380,6 +416,21 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Footer with Version Info */}
+      {/* <footer className="bg-white/50 backdrop-blur-sm border-t border-gray-200 mt-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div className="flex items-center space-x-4 text-sm text-gray-600">
+              <span>© 2025 Mysteel Construction Management</span>
+              <VersionDisplay variant="badge" />
+            </div>
+            <div className="flex items-center space-x-4">
+              <NetworkStatus showDetails={false} className="text-xs" />
+            </div>
+          </div>
+        </div>
+      </footer> */}
 
       {/* Sync Status Dashboard */}
       <SyncStatusDashboard

@@ -2,13 +2,10 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { AuthProvider } from './contexts/AuthContext';
 import { initializeOfflineStorage } from './services/offlineStorage'
 import { initSyncService } from './services/syncService'
-import './utils/consoleHelpers'
-import './utils/securityTester'
-import './utils/setupDatabase'
-import './utils/testingMode'
-import './utils/systemCheck'
+// Security tester removed for production
 
 // Enhanced cache clearing with forced refresh
 async function clearAllCaches() {
@@ -17,65 +14,22 @@ async function clearAllCaches() {
     await Promise.all(cacheNames.map(name => caches.delete(name)));
     console.log('✅ All caches cleared');
 
-    // Also clear localStorage and sessionStorage for complete refresh
+    // Preserve version tracking when clearing storage
+    const lastNotifiedVersion = localStorage.getItem('lastNotifiedVersion');
+    
+    // Clear localStorage and sessionStorage for complete refresh
     localStorage.clear();
     sessionStorage.clear();
-    console.log('✅ Storage cleared');
+    
+    // Restore version tracking
+    if (lastNotifiedVersion) {
+      localStorage.setItem('lastNotifiedVersion', lastNotifiedVersion);
+    }
+    
+    console.log('✅ Storage cleared (version tracking preserved)');
   } catch (error) {
     console.error('❌ Error clearing caches:', error);
   }
-}
-
-// Show subtle notification for seamless updates
-function showSeamlessUpdateNotification(payload: any) {
-  // Create a subtle, non-intrusive notification
-  const notification = document.createElement('div');
-  notification.style.cssText = `
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background: linear-gradient(135deg, #10b981, #059669);
-    color: white;
-    padding: 12px 20px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    z-index: 10000;
-    opacity: 0;
-    transform: translateX(100%);
-    transition: all 0.3s ease;
-    max-width: 300px;
-  `;
-
-  notification.innerHTML = `
-    <div style="display: flex; align-items: center; gap: 8px;">
-      <div style="width: 8px; height: 8px; background: white; border-radius: 50%; animation: pulse 2s infinite;"></div>
-      <div>
-        <div style="font-weight: 600;">App Updated</div>
-        <div style="font-size: 12px; opacity: 0.9;">Version ${payload.version} is now active</div>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(notification);
-
-  // Animate in
-  setTimeout(() => {
-    notification.style.opacity = '1';
-    notification.style.transform = 'translateX(0)';
-  }, 100);
-
-  // Auto remove after 4 seconds
-  setTimeout(() => {
-    notification.style.opacity = '0';
-    notification.style.transform = 'translateX(100%)';
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.parentNode.removeChild(notification);
-      }
-    }, 300);
-  }, 4000);
 }
 
 // Force hard refresh with cache busting (kept for emergency use)
@@ -86,63 +40,34 @@ function forceHardRefresh() {
   window.location.replace(url.toString());
 }
 
-// Enhanced Service Worker registration with forced updates
+// Simplified Service Worker registration
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      console.log('🚀 Initializing Service Worker with forced updates...');
+      console.log('🚀 Registering Service Worker...');
 
-      // Unregister existing service workers for clean slate
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map(registration => registration.unregister()));
-      console.log('🧹 Unregistered old service workers');
-
-      // Clear all caches for fresh start
-      await clearAllCaches();
-
-      // Register new service worker with no cache
       const registration = await navigator.serviceWorker.register('/sw.js', {
-        updateViaCache: 'none', // Always fetch fresh service worker
-        scope: '/' // Ensure full scope coverage
+        updateViaCache: 'none',
+        scope: '/'
       });
 
-      console.log('✅ Service Worker registered:', registration);
+      console.log('✅ Service Worker registered successfully');
 
-      // Seamless update detection
+      // Handle updates
       registration.addEventListener('updatefound', () => {
-        console.log('🔄 Service Worker update found - preparing seamless update...');
         const newWorker = registration.installing;
-
         if (newWorker) {
           newWorker.addEventListener('statechange', () => {
-            console.log(`🔄 Service Worker state: ${newWorker.state}`);
-
-            if (newWorker.state === 'installed') {
-              if (navigator.serviceWorker.controller) {
-                // New version available - activate seamlessly
-                console.log('🔄 New version detected - activating seamlessly...');
-
-                // Skip waiting to activate immediately (no refresh)
-                newWorker.postMessage({ type: 'SKIP_WAITING' });
-
-                // No force refresh - let service worker handle seamlessly
-                console.log('✅ Seamless update activated');
-              } else {
-                // First install
-                console.log('✅ Service Worker installed for first time');
-              }
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              console.log('🔄 New version available');
+              newWorker.postMessage({ type: 'SKIP_WAITING' });
             }
           });
         }
       });
 
-      // Check for updates periodically (less frequent for seamless updates)
-      setInterval(() => {
-        registration.update();
-      }, 60000); // Check every 60 seconds
-
-    } catch (registrationError) {
-      console.error('❌ Service Worker registration failed:', registrationError);
+    } catch (error) {
+      console.error('❌ Service Worker registration failed:', error);
     }
   });
 
@@ -193,14 +118,13 @@ if ('serviceWorker' in navigator) {
 
       case 'SW_BACKGROUND_UPDATE_READY':
         console.log('🔄 Background update ready:', payload);
-        // Update is prepared in background - no action needed
+        // Update is prepared in background - auto-update will handle it silently
         break;
 
       case 'SW_SEAMLESS_UPDATE_COMPLETE':
         console.log('✅ Seamless update complete:', payload);
-        // New version is now active - no refresh needed
-        // Optionally show a subtle notification
-        showSeamlessUpdateNotification(payload);
+        // New version is now active - no user notification needed
+        console.log(`📱 Now running version ${payload.version || 'latest'}`);
         break;
 
       default:
@@ -239,8 +163,15 @@ const initializeOfflineSupport = async () => {
 // Initialize offline support
 initializeOfflineSupport();
 
+// Initialize automatic version checking (completely silent)
+console.log('🔄 Initializing automatic version checking...');
+// The version check service is automatically initialized when imported
+
+// Re-enable StrictMode after fixing context issues
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
-  </StrictMode>,
-)
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  </StrictMode>
+);
