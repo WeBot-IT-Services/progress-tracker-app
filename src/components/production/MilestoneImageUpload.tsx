@@ -50,8 +50,8 @@ const MilestoneImageUpload: React.FC<MilestoneImageUploadProps> = ({
       return;
     }
 
-    console.log('🔐 Current user:', currentUser);
-    console.log('📁 Upload path will be:', `projects/${projectId}/milestones/${milestoneId}/`);
+    console.log('Current user:', currentUser);
+    console.log('Upload path will be:', `projects/${projectId}/milestones/${milestoneId}/`);
 
     setUploading(true);
     try {
@@ -68,9 +68,9 @@ const MilestoneImageUpload: React.FC<MilestoneImageUploadProps> = ({
 
         // Upload to Firebase Storage
         const path = `projects/${projectId}/milestones/${milestoneId}/${Date.now()}_${file.name}`;
-        console.log('📤 Uploading to path:', path);
+        console.log('Uploading to path:', path);
         const url = await fileService.uploadFile(file, path);
-        console.log('✅ Upload successful, URL:', url);
+        console.log('Upload successful, URL:', url);
 
         const newImage: MilestoneImage = {
           id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -93,7 +93,7 @@ const MilestoneImageUpload: React.FC<MilestoneImageUploadProps> = ({
       console.error('Error uploading images:', error);
       
       // Enhanced error debugging
-      console.log('🔍 Upload Error Debug Info:');
+      console.log('Upload Error Debug Info:');
       console.log('Error type:', error.constructor.name);
       console.log('Error code:', error.code);
       console.log('Error message:', error.message);
@@ -103,7 +103,7 @@ const MilestoneImageUpload: React.FC<MilestoneImageUploadProps> = ({
       
       // Check Firebase Auth state
       const { auth } = await import('../../config/firebase');
-      console.log('🔥 Firebase Auth Debug:');
+      console.log('Firebase Auth Debug:');
       console.log('Auth current user:', auth?.currentUser);
       console.log('Auth UID:', auth?.currentUser?.uid);
       console.log('Auth email:', auth?.currentUser?.email);

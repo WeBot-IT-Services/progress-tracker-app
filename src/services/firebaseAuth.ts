@@ -63,6 +63,7 @@ const convertFirebaseUser = async (firebaseUser: FirebaseUser, forceRefresh = fa
       console.log(`🔧 Creating default user document for: ${firebaseUser.email}`);
 
       const defaultUser: Omit<AppUser, 'uid'> = {
+        employeeId: `EMP${Date.now()}`, // Generate temporary employee ID
         email: firebaseUser.email || '',
         name: firebaseUser.displayName || 'Unknown User',
         role: 'sales', // Default role
@@ -239,6 +240,7 @@ export const firebaseRegister = async (
     await setDoc(doc(db, 'users', userCredential.user.uid), userData);
 
     return {
+      employeeId: `EMP${Date.now()}`, // Generate temporary employee ID
       uid: userCredential.user.uid,
       email,
       name,

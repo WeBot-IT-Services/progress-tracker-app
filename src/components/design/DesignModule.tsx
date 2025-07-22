@@ -3,7 +3,6 @@ import { Wrench, CheckCircle, ArrowRight, Lock, Unlock } from 'lucide-react';
 import ModuleContainer from '../common/ModuleContainer';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectsService, type Project } from '../../services/firebaseService';
-import { workflowService } from '../../services/workflowService';
 import { getModulePermissions } from '../../utils/permissions';
 import { useDocumentLock, usePresence, useCollaborationCleanup } from '../../hooks/useCollaboration';
 import { CollaborationStatus, CollaborationBanner } from '../collaboration/CollaborationIndicators';
@@ -425,7 +424,7 @@ const DesignModule: React.FC = () => {
                   : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
               }`}
             >
-              📝 WIP (Work in Progress)
+              Manage Design
             </button>
             <button
               onClick={() => setActiveTab('history')}
@@ -435,7 +434,7 @@ const DesignModule: React.FC = () => {
                   : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
               }`}
             >
-              📊 History
+              Design History
             </button>
           </div>
         </div>
@@ -461,42 +460,32 @@ const DesignModule: React.FC = () => {
               </div>
             ) : (
               wipProjects.map((project) => (
-                <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300">
-                  <div className="flex items-start justify-between mb-4">
+                <div key={project.id} className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200">
+                  <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="text-lg font-semibold text-gray-900">{project.projectName}</h3>
                         <div className="flex items-center space-x-2">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
-                            {project.status}
-                          </span>
-                          {/* Manual unlock button for admins - Only show if collaboration is working */}
-                          {currentUser?.role === 'admin' && isLocked && selectedProjectForEdit === project.id && !isLockOwner && !lockError?.includes('permissions') && (
-                            <button
-                              onClick={() => handleManualUnlock(project.id!)}
-                              className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
-                              title="Admin: Force unlock project"
-                            >
-                              <Unlock className="w-4 h-4" />
-                            </button>
+                          {/* Next Module Badge */}
+                          {project.status === 'completed' && (
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                              production
+                            </span>
+                          )}
+                          {project.designData?.status === 'completed' && project.status !== 'completed' && (
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                              installation
+                            </span>
                           )}
                         </div>
                       </div>
 
-                      {/* Collaboration Status - Only show if collaboration is working */}
-                      {selectedProjectForEdit === project.id && !lockError?.includes('permissions') && (
-                        <CollaborationStatus
-                          isLocked={isLocked}
-                          lockedBy={lockOwner?.userName}
-                          lastModified={new Date()}
-                          className="mb-3"
-                        />
-                      )}
                       {project.description && (
-                        <p className="text-gray-600 mb-3">{project.description}</p>
+                        <p className="text-gray-600 text-sm mb-3">{project.description}</p>
                       )}
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-4">
-                        <span>{formatDueDate(project.deliveryDate)}</span>
+                      
+                      <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-3">
+                        <span>Due: {formatDueDate(project.deliveryDate)}</span>
                         <span>Progress: {project.progress || 0}%</span>
                         {project.designData?.status && (
                           <span className="capitalize">Design: {project.designData.status}</span>
@@ -509,13 +498,13 @@ const DesignModule: React.FC = () => {
                       {/* Progress Bar */}
                       <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
                         <div
-                          className="bg-gradient-to-r from-blue-500 to-blue-600 h-2 rounded-full transition-all duration-500"
+                          className="bg-blue-500 h-2 rounded-full transition-all duration-500"
                           style={{ width: `${project.progress || 0}%` }}
                         ></div>
                       </div>
 
-                      {/* Design Status Checkboxes */}
-                      <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                      {/* Design Status */}
+                      <div className="bg-gray-50 rounded-lg p-3">
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="text-sm font-medium text-gray-700">Design Status:</h4>
                           {(processingProject === project.id || operationInProgress.has(project.id!)) && (
@@ -525,19 +514,14 @@ const DesignModule: React.FC = () => {
                             </div>
                           )}
                         </div>
-                        <div className="space-y-2">
+                        <div className="flex gap-4">
                           <label className="flex items-center">
                             <input
                               type="radio"
                               name={`design-status-${project.id}`}
                               checked={project.designData?.status === 'pending' || !project.designData?.status}
                               onChange={async () => {
-                                // Prevent duplicate operations
-                                if (operationInProgress.has(project.id!)) {
-                                  console.warn('Operation already in progress for project:', project.id);
-                                  return;
-                                }
-                                
+                                if (operationInProgress.has(project.id!)) return;
                                 try {
                                   setSelectedProjectForEdit(project.id!);
                                   const lockAcquired = await acquireLock();
@@ -547,22 +531,18 @@ const DesignModule: React.FC = () => {
                                     await releaseLock();
                                     await removePresence();
                                   } else {
-                                    // If lock acquisition fails due to permissions, proceed without locking
                                     if (lockError?.includes('permissions')) {
-                                      console.warn('Collaborative editing disabled due to permissions, proceeding without lock');
                                       handleDesignStatusChange(project.id!, 'pending');
                                     } else {
-                                      alert(lockError || 'Project is currently being edited by another user');
+                                      alert(lockError || 'Project is being edited by another user');
                                     }
                                   }
                                 } catch (error) {
-                                  console.error('Error in status change:', error);
-                                  // Fallback: proceed without collaborative features
                                   handleDesignStatusChange(project.id!, 'pending');
                                 }
                               }}
                               disabled={!permissions.canEdit || (isLocked && !isLockOwner && selectedProjectForEdit === project.id) || operationInProgress.has(project.id!) || processingProject === project.id}
-                              className="mr-2"
+                              className="mr-2 text-blue-600"
                             />
                             <span className="text-sm">Pending</span>
                           </label>
@@ -572,12 +552,7 @@ const DesignModule: React.FC = () => {
                               name={`design-status-${project.id}`}
                               checked={project.designData?.status === 'partial'}
                               onChange={async () => {
-                                // Prevent duplicate operations
-                                if (operationInProgress.has(project.id!)) {
-                                  console.warn('Operation already in progress for project:', project.id);
-                                  return;
-                                }
-                                
+                                if (operationInProgress.has(project.id!)) return;
                                 try {
                                   setSelectedProjectForEdit(project.id!);
                                   const lockAcquired = await acquireLock();
@@ -587,22 +562,18 @@ const DesignModule: React.FC = () => {
                                     await releaseLock();
                                     await removePresence();
                                   } else {
-                                    // If lock acquisition fails due to permissions, proceed without locking
                                     if (lockError?.includes('permissions')) {
-                                      console.warn('Collaborative editing disabled due to permissions, proceeding without lock');
                                       handleDesignStatusChange(project.id!, 'partial');
                                     } else {
-                                      alert(lockError || 'Project is currently being edited by another user');
+                                      alert(lockError || 'Project is being edited by another user');
                                     }
                                   }
                                 } catch (error) {
-                                  console.error('Error in status change:', error);
-                                  // Fallback: proceed without collaborative features
                                   handleDesignStatusChange(project.id!, 'partial');
                                 }
                               }}
                               disabled={!permissions.canEdit || (isLocked && !isLockOwner && selectedProjectForEdit === project.id) || operationInProgress.has(project.id!) || processingProject === project.id}
-                              className="mr-2"
+                              className="mr-2 text-blue-600"
                             />
                             <span className="text-sm">Partial</span>
                           </label>
@@ -612,12 +583,7 @@ const DesignModule: React.FC = () => {
                               name={`design-status-${project.id}`}
                               checked={project.designData?.status === 'completed'}
                               onChange={async () => {
-                                // Prevent duplicate operations
-                                if (operationInProgress.has(project.id!)) {
-                                  console.warn('Operation already in progress for project:', project.id);
-                                  return;
-                                }
-                                
+                                if (operationInProgress.has(project.id!)) return;
                                 try {
                                   setSelectedProjectForEdit(project.id!);
                                   const lockAcquired = await acquireLock();
@@ -627,130 +593,29 @@ const DesignModule: React.FC = () => {
                                     await releaseLock();
                                     await removePresence();
                                   } else {
-                                    // If lock acquisition fails due to permissions, proceed without locking
                                     if (lockError?.includes('permissions')) {
-                                      console.warn('Collaborative editing disabled due to permissions, proceeding without lock');
                                       handleDesignStatusChange(project.id!, 'completed');
                                     } else {
-                                      alert(lockError || 'Project is currently being edited by another user');
+                                      alert(lockError || 'Project is being edited by another user');
                                     }
                                   }
                                 } catch (error) {
-                                  console.error('Error in status change:', error);
-                                  // Fallback: proceed without collaborative features
                                   handleDesignStatusChange(project.id!, 'completed');
                                 }
                               }}
                               disabled={!permissions.canEdit || (isLocked && !isLockOwner && selectedProjectForEdit === project.id) || operationInProgress.has(project.id!) || processingProject === project.id}
-                              className="mr-2"
+                              className="mr-2 text-blue-600"
                             />
                             <span className="text-sm">Completed</span>
                           </label>
                         </div>
                       </div>
 
-                      {/* Flow buttons for partial and completed */}
-                      {/* {(project.designData?.status === 'partial' || project.designData?.status === 'completed') && permissions.canEdit && (
-                        <div className="mb-4 p-3 bg-green-50 rounded-lg">
-                          <h4 className="text-sm font-medium text-green-800 mb-3">
-                            {project.designData?.status === 'partial' ? 'Partial Completed - Flow to:' : 'Completed - Flow to:'}
-                          </h4>
-
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              onClick={async () => {
-                                try {
-                                  setSelectedProjectForEdit(project.id!);
-                                  const lockAcquired = await acquireLock();
-                                  if (lockAcquired) {
-                                    await updatePresence('editing');
-                                    handleDesignStatusChange(project.id!, 'completed', 'production', new Date());
-                                    await releaseLock();
-                                    await removePresence();
-                                  } else {
-                                    // If lock acquisition fails due to permissions, proceed without locking
-                                    if (lockError?.includes('permissions')) {
-                                      console.warn('Collaborative editing disabled due to permissions, proceeding without lock');
-                                      handleDesignStatusChange(project.id!, 'completed', 'production', new Date());
-                                    } else {
-                                      alert(lockError || 'Project is currently being edited by another user');
-                                    }
-                                  }
-                                } catch (error) {
-                                  console.error('Error in flow to production:', error);
-                                  // Fallback: proceed without collaborative features
-                                  handleDesignStatusChange(project.id!, 'completed', 'production', new Date());
-                                }
-                              }}
-                              disabled={isLocked && !isLockOwner && selectedProjectForEdit === project.id}
-                              className="bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <ArrowRight className="w-4 h-4 mr-1" />
-                              Complete & Flow to Production
-                            </button>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  setSelectedProjectForEdit(project.id!);
-                                  const lockAcquired = await acquireLock();
-                                  if (lockAcquired) {
-                                    await updatePresence('editing');
-                                    handleDesignStatusChange(project.id!, 'completed', 'installation', new Date());
-                                    await releaseLock();
-                                    await removePresence();
-                                  } else {
-                                    // If lock acquisition fails due to permissions, proceed without locking
-                                    if (lockError?.includes('permissions')) {
-                                      console.warn('Collaborative editing disabled due to permissions, proceeding without lock');
-                                      handleDesignStatusChange(project.id!, 'completed', 'installation', new Date());
-                                    } else {
-                                      alert(lockError || 'Project is currently being edited by another user');
-                                    }
-                                  }
-                                } catch (error) {
-                                  console.error('Error in flow to installation:', error);
-                                  // Fallback: proceed without collaborative features
-                                  handleDesignStatusChange(project.id!, 'completed', 'installation', new Date());
-                                }
-                              }}
-                              disabled={isLocked && !isLockOwner && selectedProjectForEdit === project.id}
-                              className="bg-purple-100 hover:bg-purple-200 text-purple-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <ArrowRight className="w-4 h-4 mr-1" />
-                              Complete & Flow to Installation
-                            </button>
-                          </div>
-
-                          <p className="text-xs text-gray-600 mt-2">
-                            {project.designData?.status === 'partial'
-                              ? 'Partial: Project stays in WIP for continued work and flows to selected module'
-                              : 'Completed: Project moves to History and flows to selected module'
-                            }
-                          </p>
-                        </div>
-                      )} */}
-
+                      {/* Read-only access notice */}
                       {!permissions.canEdit && (
-                        <div className="flex items-center text-gray-500 text-sm">
-                          <Lock className="w-4 h-4 mr-1" />
+                        <div className="flex items-center mt-3 text-xs text-gray-500">
+                          <Lock className="w-3 h-3 mr-1" />
                           Read-only access
-                        </div>
-                      )}
-
-                      {/* Revert to WIP option for history projects */}
-                      {permissions.canEdit && project.designData?.status === 'completed' && (
-                        <div className="mt-4 pt-3 border-t border-gray-200">
-                          <button
-                            onClick={() => {
-                              if (confirm('Are you sure you want to revert this project back to WIP? This will move it back to the design phase.')) {
-                                handleDesignStatusChange(project.id!, 'pending');
-                              }
-                            }}
-                            className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
-                          >
-                            <ArrowRight className="w-4 h-4 mr-1 rotate-180" />
-                            Revert to WIP
-                          </button>
                         </div>
                       )}
                     </div>
@@ -761,6 +626,7 @@ const DesignModule: React.FC = () => {
           </div>
         )}
 
+        {/* History Tab */}
         {/* History Tab */}
         {activeTab === 'history' && (
           <div className="space-y-4">
@@ -781,35 +647,34 @@ const DesignModule: React.FC = () => {
               </div>
             ) : (
               historyProjects.map((project) => (
-                <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300">
+                <div key={project.id} className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="text-lg font-semibold text-gray-900">{project.projectName}</h3>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(project.status)}`}>
-                          {project.status}
+                        <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                          completed
                         </span>
                       </div>
                       {project.description && (
-                        <p className="text-gray-600 mb-3">{project.description}</p>
+                        <p className="text-gray-600 text-sm mb-3">{project.description}</p>
                       )}
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-4">
-                        <span>{formatCompletionDate(project.deliveryDate)}</span>
+                      <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-3">
+                        <span>Completed: {formatCompletionDate(project.deliveryDate)}</span>
                         <span>Progress: {project.progress || 100}%</span>
-
                       </div>
 
                       {/* Progress Bar */}
                       <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
                         <div
-                          className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full transition-all duration-500"
+                          className="bg-green-500 h-2 rounded-full transition-all duration-500"
                           style={{ width: `${project.progress || 100}%` }}
                         ></div>
                       </div>
 
                       {/* Revert to WIP option for history projects */}
                       {permissions.canEdit && (
-                        <div className="mt-4 pt-3 border-t border-gray-200">
+                        <div className="pt-3 border-t border-gray-200">
                           <button
                             onClick={() => {
                               if (confirm('Are you sure you want to revert this project back to WIP? This will move it back to the design phase.')) {
@@ -823,7 +688,6 @@ const DesignModule: React.FC = () => {
                           </button>
                         </div>
                       )}
-
                     </div>
                   </div>
                 </div>

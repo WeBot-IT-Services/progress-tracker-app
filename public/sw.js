@@ -2,9 +2,9 @@
 // Provides seamless background updates without visible page refreshes
 
 // Version-based cache names for seamless updates
-const VERSION = '3.14.0';
-const BUILD_TIMESTAMP = 1751963670395;
-const BUILD_ID = 'd70f53b-1751963670395';
+const VERSION = '3.15.0';
+const BUILD_TIMESTAMP = 1752827539573;
+const BUILD_ID = `${Math.random().toString(36).substring(2, 9)}-${BUILD_TIMESTAMP}`;
 const CACHE_NAME = `progress-tracker-v${VERSION}-${BUILD_ID}`;
 const STATIC_CACHE_NAME = `progress-tracker-static-v${VERSION}-${BUILD_ID}`;
 const DYNAMIC_CACHE_NAME = `progress-tracker-dynamic-v${VERSION}-${BUILD_ID}`;

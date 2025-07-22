@@ -40,8 +40,8 @@ function forceHardRefresh() {
   window.location.replace(url.toString());
 }
 
-// Simplified Service Worker registration
-if ('serviceWorker' in navigator) {
+// Simplified Service Worker registration - only in production
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', async () => {
     try {
       console.log('🚀 Registering Service Worker...');

@@ -6,13 +6,16 @@ import Dashboard from './components/dashboard/Dashboard';
 import SalesModule from './components/sales/SalesModule';
 import VersionFooter from './components/VersionFooter';
 import DesignModule from './components/design/DesignModule';
-import ProductionModule from './components/production/ProductionModule';
+import ProductionModule from './components/production/ProductionModuleNew';
 import InstallationModule from './components/installation/InstallationModule';
 import MasterTracker from './components/tracker/MasterTracker';
 import ComplaintsModule from './components/complaints/ComplaintsModule';
 import AdminModule from './components/admin/AdminModule';
 import ChangePasswordForm from './components/auth/ChangePasswordForm';
 import ProfileSettings from './components/profile/ProfileSettings';
+import MobileLayoutTest from './components/test/MobileLayoutTest';
+import MobileLayoutVerification from './components/test/MobileLayoutVerification';
+import AuthenticationTest from './components/test/AuthenticationTest';
 // Test components removed for production
 import { initializeFirebaseService } from './services/firebaseService';
 
@@ -218,6 +221,45 @@ function App() {
                 <div className="min-h-screen flex flex-col">
                   <div className="flex-1">
                     <ProfileSettings />
+                  </div>
+                  <VersionFooter />
+                </div>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/test/mobile-layout"
+            element={
+              <ProtectedRoute>
+                <div className="min-h-screen flex flex-col">
+                  <div className="flex-1">
+                    <MobileLayoutTest />
+                  </div>
+                  <VersionFooter />
+                </div>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/test/mobile-verification"
+            element={
+              <ProtectedRoute>
+                <div className="min-h-screen flex flex-col">
+                  <div className="flex-1">
+                    <MobileLayoutVerification />
+                  </div>
+                  <VersionFooter />
+                </div>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/test/authentication"
+            element={
+              <ProtectedRoute>
+                <div className="min-h-screen flex flex-col">
+                  <div className="flex-1">
+                    <AuthenticationTest />
                   </div>
                   <VersionFooter />
                 </div>

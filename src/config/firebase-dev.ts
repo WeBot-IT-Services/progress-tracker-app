@@ -109,26 +109,19 @@ if (isDevelopmentMode && typeof window !== 'undefined') {
     }
   };
 
-  // Add data verification function (READ-ONLY)
-  (window as any).verifyExistingData = async () => {
-    try {
-      const { verifyExistingData } = await import('../utils/firestoreDataViewer');
-      return await verifyExistingData();
-    } catch (error) {
-      console.error('❌ Data verification failed:', error);
-      return { error: error.message };
-    }
+  // Debug utilities removed during codebase cleanup
+  // These functions are no longer available:
+  // - verifyExistingData (from firestoreDataViewer)
+  // - debugProject (from debugProject)
+
+  (window as any).verifyExistingData = () => {
+    console.warn('⚠️ verifyExistingData utility was removed during codebase cleanup');
+    return { error: 'Debug utility not available' };
   };
 
-  // Add debug project function
-  (window as any).debugProject = async (projectId?: string) => {
-    try {
-      const { debugProject } = await import('../utils/debugProject');
-      return await debugProject(projectId);
-    } catch (error) {
-      console.error('❌ Debug project failed:', error);
-      return { error: error.message };
-    }
+  (window as any).debugProject = () => {
+    console.warn('⚠️ debugProject utility was removed during codebase cleanup');
+    return { error: 'Debug utility not available' };
   };
 
   // Only show development functions info if console is open or explicitly requested

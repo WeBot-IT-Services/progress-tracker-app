@@ -66,14 +66,14 @@ const AppHeader: React.FC<AppHeaderProps> = ({
             </div>
 
             {/* Sync Status Button */}
-            <button
-              onClick={() => {/* TODO: Implement sync status */}}
+            {/* <button
+              onClick={() => {}}
               className="flex items-center space-x-1 sm:space-x-2 bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 sm:px-4 py-2 rounded-xl transition-all duration-200 hover:shadow-md group"
               title="View sync status"
             >
               <Activity className="h-4 w-4" />
               <span className="hidden sm:inline text-sm font-medium">Sync</span>
-            </button>
+            </button> */}
 
             {/* Profile Settings Button */}
             <button

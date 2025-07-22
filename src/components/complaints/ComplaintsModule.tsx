@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquareX, Plus, AlertTriangle, CheckCircle, Clock, User, Eye, Edit, Upload, X, Image } from 'lucide-react';
 import ModuleContainer from '../common/ModuleContainer';
+import Modal from '../common/Modal';
 import { useAuth } from '../../contexts/AuthContext';
 import { complaintsService, projectsService, fileService, type Complaint, type Project } from '../../services/firebaseService';
+import { getUserIdentifier } from '../../utils/permissions';
 import { safeFormatDate } from '../../utils/dateUtils';
 
 const ComplaintsModule: React.FC = () => {
@@ -97,7 +99,7 @@ const ComplaintsModule: React.FC = () => {
         });
         
         uploadedImageUrls = await Promise.all(uploadPromises);
-        console.log('✅ Images uploaded successfully:', uploadedImageUrls);
+        console.log('Images uploaded successfully:', uploadedImageUrls);
       }
 
       const complaintData = {
@@ -108,7 +110,7 @@ const ComplaintsModule: React.FC = () => {
         priority: formData.priority,
         status: 'open' as const,
         department: formData.department,
-        createdBy: currentUser.uid,
+        createdBy: getUserIdentifier(currentUser),
         files: uploadedImageUrls // Use uploaded URLs instead of blob URLs
       };
 
@@ -398,6 +400,18 @@ const ComplaintsModule: React.FC = () => {
     }
   };
 
+  // Delete complaint
+  const handleDeleteComplaint = async (complaintId: string) => {
+    if (!window.confirm('Are you sure you want to delete this complaint? This action cannot be undone.')) return;
+    try {
+      await complaintsService.deleteComplaint(complaintId);
+      setComplaints(prev => prev.filter(c => c.id !== complaintId));
+    } catch (error) {
+      console.error('Error deleting complaint:', error);
+      alert('Failed to delete complaint.');
+    }
+  };
+
   const filteredComplaints = filterComplaintsByRole(complaints);
 
   const getStatusIcon = (status: string) => {
@@ -464,8 +478,8 @@ const ComplaintsModule: React.FC = () => {
     // Sales can edit all complaints (as they handle customer relations)
     if (currentUser.role === 'sales') return true;
 
-    // Users can edit complaints they created
-    if (complaint.createdBy === currentUser.uid) return true;
+    // Users can edit complaints they created (check by user identifier)
+    if (complaint.createdBy === getUserIdentifier(currentUser)) return true;
 
     return false;
   };
@@ -474,15 +488,15 @@ const ComplaintsModule: React.FC = () => {
     <>
       <ModuleContainer
         title="Complaints"
-        subtitle="Manage customer complaints and feedback - Open for all users"
+        subtitle="Manage customer complaints and feedback"
         icon={MessageSquareX}
         iconColor="text-white"
         iconBgColor="bg-gradient-to-r from-red-500 to-red-600"
         className="bg-gradient-to-br from-red-50 via-white to-orange-50"
-      maxWidth="7xl"
-      fullViewport={true}
-    >
-      <div className="flex-1 flex flex-col min-h-0">
+        maxWidth="7xl"
+        fullViewport={true}
+      >
+      <div className="flex-1 flex flex-col min-h-0 pb-6 sm:pb-8 px-4 sm:px-6 lg:px-8">
         {/* Tab Navigation */}
         <div className="bg-white/80 backdrop-blur-sm rounded-xl p-1 mb-6 shadow-sm border border-white/50">
           <div className="flex">
@@ -494,7 +508,7 @@ const ComplaintsModule: React.FC = () => {
                   : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
               }`}
             >
-              📋 View Complaints
+              View Complaints
             </button>
             <button
               onClick={() => setActiveView('submit')}
@@ -528,139 +542,108 @@ const ComplaintsModule: React.FC = () => {
                 </div>
               ) : (
                 filteredComplaints.map((complaint) => (
-                  <div key={complaint.id} className="group relative bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300 overflow-hidden">
-                    <div className="flex items-start space-x-6 p-6">
-                      {/* Main Content */}
-                      <div className="flex-1 space-y-4">
-                        {/* Header */}
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h4 className="text-xl font-semibold text-gray-900 group-hover:text-red-600 transition-colors">
-                              {complaint.title}
-                            </h4>
-                            <p className="text-gray-600 mt-1 leading-relaxed">{complaint.description}</p>
-                          </div>
-                          <div className="flex items-center space-x-2 ml-4">
-                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(complaint.status)}`}>
-                              {complaint.status === 'open' ? '🔴 OPEN' :
-                               complaint.status === 'in-progress' ? '🟡 IN PROGRESS' :
-                               '🟢 RESOLVED'}
-                            </span>
-                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getPriorityColor(complaint.priority)}`}>
-                              {complaint.priority === 'high' ? '🔴 HIGH' :
-                               complaint.priority === 'medium' ? '🟡 MEDIUM' :
-                               '🟢 LOW'}
-                            </span>
-                          </div>
-                        </div>
+                  <div key={complaint.id} className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200">
+                    {/* Header with Title and Status - Side by Side */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <h4 className="text-lg font-semibold text-gray-900 mb-2">{complaint.title}</h4>
+                        <p className="text-gray-600 text-sm">{complaint.description}</p>
+                      </div>
+                      <div className="flex items-center space-x-2 ml-4">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(complaint.status)}`}>
+                          {complaint.status === 'open' ? 'OPEN' :
+                           complaint.status === 'in-progress' ? 'IN PROGRESS' :
+                           'RESOLVED'}
+                        </span>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${getPriorityColor(complaint.priority)}`}>
+                          {complaint.priority.toUpperCase()}
+                        </span>
+                      </div>
+                    </div>
 
-                        {/* Details Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                          <div className="flex items-center space-x-3 p-4 bg-gradient-to-r from-blue-50 to-blue-100 rounded-2xl border border-blue-200">
-                            <div className="bg-blue-500 p-3 rounded-xl shadow-sm">
-                              <User className="w-5 h-5 text-white" />
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Customer</p>
-                              <p className="font-bold text-blue-900 text-lg">{complaint.customerName}</p>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center space-x-3 p-4 bg-gradient-to-r from-purple-50 to-purple-100 rounded-2xl border border-purple-200">
-                            <div className="bg-purple-500 p-3 rounded-xl shadow-sm">
-                              <MessageSquareX className="w-5 h-5 text-white" />
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide">Project</p>
-                              <p className="font-bold text-purple-900 text-lg truncate">
-                                {projects.find(p => p.id === complaint.projectId)?.name || 'Unknown Project'}
-                              </p>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center space-x-3 p-4 bg-gradient-to-r from-emerald-50 to-emerald-100 rounded-2xl border border-emerald-200">
-                            <div className={`p-3 rounded-xl shadow-sm ${
-                              complaint.department === 'sales' ? 'bg-green-500' :
-                              complaint.department === 'designer' ? 'bg-blue-500' :
-                              complaint.department === 'production' ? 'bg-orange-500' :
-                              'bg-purple-500'
-                            }`}>
-                              <div className={`w-5 h-5 rounded-full bg-white`} />
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Department</p>
-                              <p className="font-bold text-emerald-900 text-lg">
-                                {complaint.department ? 
-                                  complaint.department.charAt(0).toUpperCase() + complaint.department.slice(1) : 
-                                  'Sales'
-                                }
-                              </p>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center space-x-3 p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl border border-gray-200">
-                            <div className="bg-gray-500 p-3 rounded-xl shadow-sm">
-                              <Clock className="w-5 h-5 text-white" />
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Created</p>
-                              <p className="font-bold text-gray-900 text-lg">{safeFormatDate(complaint.createdAt)}</p>
-                            </div>
-                          </div>
+                    {/* Details Grid - Simple Layout */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+                      <div>
+                        <span className="text-gray-500">Customer:</span>
+                        <div className="text-gray-900 font-medium">{complaint.customerName}</div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Project:</span>
+                        <div className="text-gray-900 font-medium">
+                          {(() => {
+                            const project = projects.find(p => p.id === complaint.projectId);
+                            return project ? project.projectName || project.name : 'Unknown Project';
+                          })()}
                         </div>
-                        
-                        {/* Images Section */}
-                        <div>
-                          <div className="flex items-center justify-between">
-                            <h5 className="text-sm font-semibold text-gray-700 flex items-center">
-                              <Image className="w-4 h-4 mr-2" />
-                              Images {complaint.files && complaint.files.length > 0 && `(${complaint.files.length})`}
-                            </h5>
-                            <button
-                              onClick={() => {
-                                setSelectedComplaintForImages(complaint);
-                                setShowImageModal(true);
-                              }}
-                              className="flex items-center space-x-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-4 py-2 rounded-lg transition-all duration-200 hover:shadow-lg text-sm font-medium"
-                            >
-                              <Image className="w-4 h-4" />
-                              <span>View Images</span>
-                            </button>
-                          </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Department:</span>
+                        <div className="text-gray-900 font-medium capitalize">
+                          {complaint.department || 'Sales'}
                         </div>
-                        
-                        {/* Permission Badge */}
-                        {!canEditComplaint(complaint) && (
-                          <div className="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 border-2 border-gray-300 shadow-sm">
-                            <Eye className="w-4 h-4 mr-2" />
-                            VIEW ONLY ACCESS
-                          </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Created:</span>
+                        <div className="text-gray-900 font-medium">{safeFormatDate(complaint.createdAt)}</div>
+                      </div>
+                    </div>
+                    
+                    {/* Images and Actions - Bottom Row */}
+                    <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                      {/* Images Section */}
+                      <div className="flex items-center">
+                        {complaint.files && complaint.files.length > 0 ? (
+                          <button
+                            onClick={() => {
+                              setSelectedComplaintForImages(complaint);
+                              setShowImageModal(true);
+                            }}
+                            className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
+                          >
+                            <Image className="w-4 h-4 mr-1" />
+                            {complaint.files.length} image(s) attached
+                          </button>
+                        ) : (
+                          <span className="text-gray-400 text-sm">No images</span>
                         )}
                       </div>
 
                       {/* Action Buttons */}
-                      <div className="flex flex-col space-y-3 ml-8">
+                      <div className="flex items-center space-x-2">
                         <button
                           onClick={() => handleViewComplaint(complaint)}
-                          className="group/btn p-4 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-2xl transition-all duration-200 hover:shadow-lg hover:scale-110 border-2 border-transparent hover:border-blue-200"
-                          title="View Details"
+                          className="flex items-center px-3 py-1 text-blue-600 hover:bg-blue-50 rounded text-sm"
                         >
-                          <Eye className="w-6 h-6 group-hover/btn:scale-110 transition-transform" />
+                          <Eye className="w-4 h-4 mr-1" />
+                          View
                         </button>
                         {canEditComplaint(complaint) && (
-                          <button
-                            onClick={() => handleEditComplaint(complaint)}
-                            className="group/btn p-4 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-2xl transition-all duration-200 hover:shadow-lg hover:scale-110 border-2 border-transparent hover:border-green-200"
-                            title="Edit Complaint"
-                          >
-                            <Edit className="w-6 h-6 group-hover/btn:scale-110 transition-transform" />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleEditComplaint(complaint)}
+                              className="flex items-center px-3 py-1 text-green-600 hover:bg-green-50 rounded text-sm"
+                            >
+                              <Edit className="w-4 h-4 mr-1" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteComplaint(complaint.id!)}
+                              className="flex items-center px-3 py-1 text-red-600 hover:bg-red-50 rounded text-sm"
+                            >
+                              <X className="w-4 h-4 mr-1" />
+                              Delete
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
-                    
-                    {/* Subtle hover effect overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+
+                    {/* Permission notice */}
+                    {!canEditComplaint(complaint) && (
+                      <div className="text-xs text-gray-500 mt-2">
+                        Read-only access
+                      </div>
+                    )}
                   </div>
                 ))
               )}
@@ -670,9 +653,9 @@ const ComplaintsModule: React.FC = () => {
 
         {/* Submit Complaint Tab */}
         {activeView === 'submit' && (
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/50 p-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center space-x-3 mb-6">
-              <div className="bg-gradient-to-r from-red-500 to-red-600 p-3 rounded-xl">
+              <div className="bg-red-500 p-3 rounded-lg">
                 <Plus className="w-6 h-6 text-white" />
               </div>
               <div>
@@ -684,7 +667,7 @@ const ComplaintsModule: React.FC = () => {
             <form onSubmit={handleSubmitComplaint} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Complaint Title *
                   </label>
                   <input
@@ -692,21 +675,21 @@ const ComplaintsModule: React.FC = () => {
                     name="title"
                     value={formData.title}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all bg-gray-50 focus:bg-white"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
                     placeholder="Brief description of the issue"
                     required
                   />
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Detailed Description *
                   </label>
                   <textarea
                     name="description"
                     value={formData.description}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all bg-gray-50 focus:bg-white resize-none"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all resize-none"
                     placeholder="Please provide detailed information about the complaint"
                     rows={4}
                     required
@@ -714,7 +697,7 @@ const ComplaintsModule: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Customer Name *
                   </label>
                   <input
@@ -722,21 +705,21 @@ const ComplaintsModule: React.FC = () => {
                     name="customerName"
                     value={formData.customerName}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all bg-gray-50 focus:bg-white"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
                     placeholder="Enter customer name"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Related Project *
                   </label>
                   <select
                     name="projectId"
                     value={formData.projectId}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all bg-gray-50 focus:bg-white"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
                     required
                   >
                     <option value="">Select a project</option>
@@ -749,30 +732,30 @@ const ComplaintsModule: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Priority Level
                   </label>
                   <select
                     name="priority"
                     value={formData.priority}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all bg-gray-50 focus:bg-white"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
                   >
-                    <option value="low">🟢 Low Priority</option>
-                    <option value="medium">🟡 Medium Priority</option>
-                    <option value="high">🔴 High Priority</option>
+                    <option value="low">Low Priority</option>
+                    <option value="medium">Medium Priority</option>
+                    <option value="high">High Priority</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Assign to Department
                   </label>
                   <select
                     name="department"
                     value={formData.department}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all bg-gray-50 focus:bg-white"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
                     required
                   >
                     <option value="sales">Sales Department</option>
@@ -785,17 +768,15 @@ const ComplaintsModule: React.FC = () => {
 
               {/* Image Upload Section */}
               <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Attach Supporting Images
                 </label>
                 <div className="space-y-4">
                   {/* Upload Button */}
                   <div className="flex items-center justify-center w-full">
-                    <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-md cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <div className="bg-red-100 p-3 rounded-full mb-3">
-                          <Upload className="w-6 h-6 text-red-600" />
-                        </div>
+                        <Upload className="w-8 h-8 text-gray-400 mb-2" />
                         <p className="mb-2 text-sm text-gray-600">
                           <span className="font-semibold">Click to upload</span> or drag and drop
                         </p>
@@ -819,7 +800,7 @@ const ComplaintsModule: React.FC = () => {
                           <img
                             src={URL.createObjectURL(image)}
                             alt={`Upload ${index + 1}`}
-                            className="w-full h-24 object-cover rounded-xl border-2 border-gray-200"
+                            className="w-full h-24 object-cover rounded-md border-2 border-gray-200"
                           />
                           <button
                             type="button"
@@ -851,14 +832,14 @@ const ComplaintsModule: React.FC = () => {
                     });
                     setActiveView('list');
                   }}
-                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-6 rounded-xl transition-all font-medium"
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-6 rounded-md transition-all font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex-1 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:from-gray-400 disabled:to-gray-500 text-white py-3 px-6 rounded-xl transition-all duration-200 font-medium flex items-center justify-center"
+                  className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white py-3 px-6 rounded-md transition-all duration-200 font-medium flex items-center justify-center"
                 >
                   {submitting ? (
                     <>
@@ -883,18 +864,16 @@ const ComplaintsModule: React.FC = () => {
     
     {/* Enhanced View Complaint Modal */}
     {showViewModal && selectedComplaint && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
               {/* Modal Header */}
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-t-3xl flex-shrink-0">
+              <div className="bg-red-500 p-6 flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <div className="bg-white/20 p-2 rounded-xl">
-                      <Eye className="w-6 h-6 text-white" />
-                    </div>
+                    <Eye className="w-6 h-6 text-white" />
                     <div>
                       <h3 className="text-xl font-semibold text-white">Complaint Details</h3>
-                      <p className="text-blue-100 text-sm">View complaint information</p>
+                      <p className="text-red-100 text-sm">View complaint information</p>
                     </div>
                   </div>
                   <button
@@ -902,7 +881,7 @@ const ComplaintsModule: React.FC = () => {
                       setShowViewModal(false);
                       setSelectedComplaint(null);
                     }}
-                    className="text-white/80 hover:text-white hover:bg-white/20 p-2 rounded-xl transition-all"
+                    className="text-white/80 hover:text-white hover:bg-white/20 p-2 rounded-md transition-all"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -913,7 +892,7 @@ const ComplaintsModule: React.FC = () => {
               <div className="flex-1 overflow-y-auto p-6">
                 <div className="space-y-6">
                   {/* Status & Priority Banner */}
-                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                  <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                     <div className="flex items-center space-x-4">
                       <div className="flex items-center space-x-2">
                         {getStatusIcon(selectedComplaint.status)}
@@ -1305,98 +1284,76 @@ const ComplaintsModule: React.FC = () => {
         )}
 
         {/* Enhanced Image Viewing Modal */}
-        {showImageModal && selectedComplaintForImages && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
-              {/* Modal Header */}
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-t-3xl flex-shrink-0">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="bg-white/20 p-2 rounded-xl">
-                      <Image className="w-6 h-6 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-semibold text-white">View Images</h3>
-                      <p className="text-blue-100 text-sm">{selectedComplaintForImages.title}</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShowImageModal(false);
-                      setSelectedComplaintForImages(null);
-                    }}
-                    className="text-white/80 hover:text-white hover:bg-white/20 p-2 rounded-xl transition-all"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
+        <Modal
+          isOpen={showImageModal && !!selectedComplaintForImages}
+          onClose={() => {
+            setShowImageModal(false);
+            setSelectedComplaintForImages(null);
+          }}
+          title="View Images"
+          subtitle={selectedComplaintForImages?.title}
+          size="lg"
+          footer={
+            <div className="flex justify-end">
+              <button
+                onClick={() => {
+                  setShowImageModal(false);
+                  setSelectedComplaintForImages(null);
+                }}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-6 rounded-xl transition-all font-medium min-h-[44px]"
+              >
+                Close
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-6">
+            {/* Images Display Section */}
+            <div>
+              <h4 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                <Image className="w-5 h-5 mr-2" />
+                Attached Images ({selectedComplaintForImages?.files?.length || 0})
+              </h4>
 
-              {/* Modal Body - Scrollable */}
-              <div className="flex-1 overflow-y-auto p-6">
-                <div className="space-y-6">
-                  {/* Images Display Section */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                      <Image className="w-5 h-5 mr-2" />
-                      Attached Images ({selectedComplaintForImages.files?.length || 0})
-                    </h4>
-                    
-                    {selectedComplaintForImages.files && selectedComplaintForImages.files.length > 0 ? (
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {selectedComplaintForImages.files.map((image, index) => (
-                          <div key={index} className="relative group">
-                            <img
-                              src={image}
-                              alt={`Complaint image ${index + 1}`}
-                              className="w-full h-32 object-cover rounded-xl border-2 border-gray-200 hover:border-blue-300 transition-all cursor-pointer"
-                              onClick={() => window.open(image, '_blank')}
-                            />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center space-x-2">
-                              <button
-                                onClick={() => window.open(image, '_blank')}
-                                className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-all"
-                                title="View Image"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => deleteImageFromComplaint(selectedComplaintForImages.id, image, index)}
-                                className="bg-red-500/70 hover:bg-red-600/80 text-white p-2 rounded-lg transition-all"
-                                title="Delete Image"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+              {selectedComplaintForImages?.files && selectedComplaintForImages.files.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {selectedComplaintForImages.files.map((image, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={image}
+                        alt={`Complaint image ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-xl border-2 border-gray-200 hover:border-blue-300 transition-all cursor-pointer"
+                        onClick={() => window.open(image, '_blank')}
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center space-x-2">
+                        <button
+                          onClick={() => window.open(image, '_blank')}
+                          className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg transition-all min-h-[44px] min-w-[44px]"
+                          title="View Image"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteImageFromComplaint(selectedComplaintForImages.id, image, index)}
+                          className="bg-red-500/70 hover:bg-red-600/80 text-white p-2 rounded-lg transition-all min-h-[44px] min-w-[44px]"
+                          title="Delete Image"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
-                    ) : (
-                      <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
-                        <Image className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                        <p className="text-gray-500 text-lg mb-2">No images attached</p>
-                        <p className="text-gray-400 text-sm">This complaint has no images attached</p>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-
-              {/* Actions - Fixed Footer */}
-              <div className="flex justify-end p-6 border-t border-gray-200 bg-gray-50 rounded-b-3xl flex-shrink-0">
-                <button
-                  onClick={() => {
-                    setShowImageModal(false);
-                    setSelectedComplaintForImages(null);
-                  }}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-6 rounded-xl transition-all font-medium"
-                >
-                  Close
-                </button>
-              </div>
+              ) : (
+                <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50">
+                  <Image className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                  <p className="text-gray-500 text-lg mb-2">No images attached</p>
+                  <p className="text-gray-400 text-sm">This complaint has no images attached</p>
+                </div>
+              )}
             </div>
           </div>
-        )}
+        </Modal>
     </>
   );
 };

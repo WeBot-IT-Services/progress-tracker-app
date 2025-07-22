@@ -44,8 +44,8 @@ const ModuleContainer: React.FC<ModuleContainerProps> = ({
   };
 
   return (
-    <div className={`min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 ${className}`}>
-      {/* Header */}
+    <div className={`min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 ${className}`}>
+      {/* Header - Fixed with proper mobile spacing */}
       <div className="bg-white/90 backdrop-blur-xl shadow-xl border-b border-white/30 sticky top-0 z-50">
         <div className={`${maxWidth} mx-auto px-4 sm:px-6 lg:px-8`}>
           <div className="flex items-center justify-between h-16 sm:h-20">
@@ -54,7 +54,7 @@ const ModuleContainer: React.FC<ModuleContainerProps> = ({
               {showBackButton && (
                 <button
                   onClick={handleBackClick}
-                  className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 mr-4 p-2 rounded-lg hover:bg-gray-100 transition-all duration-200"
+                  className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 mr-4 p-2 rounded-lg hover:bg-gray-100 transition-all duration-200 min-h-[44px] min-w-[44px]"
                   title="Go back to dashboard"
                 >
                   <ArrowLeft className="w-5 h-5" />
@@ -89,12 +89,20 @@ const ModuleContainer: React.FC<ModuleContainerProps> = ({
       {/* Network Status */}
       <NetworkStatus />
 
-      {/* Main Content */}
-      <main className={`${maxWidth} mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8`}>
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl border border-white/30 overflow-hidden">
+      {/* Main Content - Fixed mobile spacing to prevent header overlap */}
+      {fullViewport ? (
+        /* Full viewport mode - starts right after header with proper spacing */
+        <main className="flex-1 min-h-0 pt-20">
           {children}
-        </div>
-      </main>
+        </main>
+      ) : (
+        /* Regular container mode */
+        <main className={`${maxWidth} mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-6 sm:pt-6 sm:pb-8`}>
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl border border-white/30 overflow-hidden">
+            {children}
+          </div>
+        </main>
+      )}
     </div>
   );
 };

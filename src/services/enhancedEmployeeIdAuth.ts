@@ -1,10 +1,11 @@
-// Enhanced Employee ID Authentication Service
+// Enhanced Employee ID Authentication Service (Secure Password Authentication)
 import { usersService } from './firebaseService';
+import { verifyPassword, hashPassword, createUserSession, type UserSession } from '../utils/passwordUtils';
 import type { User as AppUser } from '../types';
 
 interface EmployeeIdValidationResult {
   isValid: boolean;
-  format: 'email' | 'employeeId' | 'invalid';
+  format: 'employeeId' | 'invalid';
   department?: string;
   formattedValue?: string;
   error?: string;
@@ -24,30 +25,19 @@ export class EnhancedEmployeeIdAuthService {
     generic: /^[A-Z]\d{4}$/i
   };
 
-  private static readonly EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
   /**
-   * Validate and format identifier (email or employee ID)
+   * Validate and format employee ID
    */
   static validateIdentifier(identifier: string): EmployeeIdValidationResult {
     if (!identifier || identifier.trim().length === 0) {
       return {
         isValid: false,
         format: 'invalid',
-        error: 'Identifier is required'
+        error: 'Employee ID is required'
       };
     }
 
-    const trimmed = identifier.trim();
-
-    // Check if it's an email
-    if (this.EMAIL_PATTERN.test(trimmed)) {
-      return {
-        isValid: true,
-        format: 'email',
-        formattedValue: trimmed.toLowerCase()
-      };
-    }
+    const trimmed = identifier.trim().toUpperCase();
 
     // Check if it's an employee ID
     const uppercase = trimmed.toUpperCase();
@@ -66,59 +56,159 @@ export class EnhancedEmployeeIdAuthService {
     return {
       isValid: false,
       format: 'invalid',
-      error: 'Invalid format. Use email or Employee ID (e.g., A0001, S0001, L0001)'
+      error: 'Invalid Employee ID format. Use format: A0001, S0001, D0001, P0001, I0001, or L0001'
     };
   }
 
   /**
-   * Enhanced login with better error handling and validation
+   * Check if this is a demo user that should use the standard demo password
    */
-  static async login(identifier: string, password: string): Promise<AppUser> {
-    const validation = this.validateIdentifier(identifier);
-    
-    if (!validation.isValid) {
-      throw new Error(validation.error || 'Invalid identifier format');
+  private static isDemoUser(employeeId: string): boolean {
+    const demoIds = ['A0001', 'S0001', 'D0001', 'P0001', 'I0001'];
+    return demoIds.includes(employeeId.toUpperCase());
+  }
+
+  /**
+   * Auto-migrate user to include password hash if missing
+   */
+  private static async migrateUserPasswordHash(user: any, password: string): Promise<string> {
+    console.log(`🔄 Auto-migrating user ${user.employeeId} to include password hash...`);
+
+    try {
+      // For demo users, ensure they use the standard demo password
+      let migrationPassword = password;
+      if (this.isDemoUser(user.employeeId) && password === 'WR2024') {
+        migrationPassword = 'WR2024';
+        console.log(`   📝 Using standard demo password for ${user.employeeId}`);
+      }
+
+      // Generate hash for the provided password
+      console.log(`   🔐 Generating password hash...`);
+      const passwordHash = await hashPassword(migrationPassword);
+      console.log(`   ✅ Password hash generated: ${passwordHash.substring(0, 16)}...`);
+
+      // Update user with the password hash
+      console.log(`   💾 Updating user record in database...`);
+      await usersService.updateUser(user.employeeId, {
+        passwordHash,
+        passwordSet: true,
+        updatedAt: new Date()
+      });
+
+      console.log(`✅ User ${user.employeeId} successfully migrated with password hash`);
+      return passwordHash;
+    } catch (migrationError: any) {
+      console.error(`❌ Failed to migrate user ${user.employeeId}:`, migrationError);
+
+      // Provide specific error messages for common issues
+      if (migrationError.message?.includes('digest')) {
+        throw new Error('Password hashing not available in this environment. Please contact your administrator.');
+      } else if (migrationError.message?.includes('crypto')) {
+        throw new Error('Cryptographic functions not available. Please contact your administrator.');
+      } else {
+        throw new Error(`Account migration failed: ${migrationError.message || 'Unknown error'}`);
+      }
+    }
+  }
+
+  /**
+   * Secure Employee ID + Password authentication
+   */
+  static async login(employeeId: string, password: string): Promise<AppUser> {
+    // Skip format validation - accept any employee ID format
+    const cleanEmployeeId = employeeId.trim().toUpperCase();
+
+    if (!password || password.trim().length === 0) {
+      throw new Error('Password is required');
     }
 
     try {
-      let email = validation.formattedValue!;
-
-      // If it's an employee ID, resolve to email
-      if (validation.format === 'employeeId') {
-        const user = await usersService.getUserByEmployeeId(validation.formattedValue!);
-        if (!user) {
-          throw new Error(`No account found with Employee ID: ${validation.formattedValue}`);
-        }
-        if (user.status && user.status !== 'active') {
-          throw new Error('Account is not active. Please contact your administrator.');
-        }
-        email = user.email;
+      // Get user by employee ID
+      const user = await usersService.getUserByEmployeeId(cleanEmployeeId);
+      if (!user) {
+        throw new Error(`No account found with Employee ID: ${cleanEmployeeId}`);
       }
 
-      // Proceed with Firebase authentication using email
-      const { firebaseLogin } = await import('./firebaseAuth');
-      const user = await firebaseLogin(email, password);
+      console.log(`🔍 User found:`, {
+        employeeId: user.employeeId,
+        name: user.name,
+        role: user.role,
+        status: user.status,
+        passwordSet: user.passwordSet,
+        hasPasswordHash: !!user.passwordHash,
+        isDemoUser: this.isDemoUser(user.employeeId)
+      });
 
-      // Update last login time
-      if (user.uid) {
-        await usersService.updateLastLogin(user.uid);
+      // Check if user is active
+      if (user.status && user.status !== 'active') {
+        throw new Error('Account is not active. Please contact your administrator.');
       }
 
-      return user;
+      // Handle password verification with automatic migration
+      let passwordHash = user.passwordHash;
+
+      // Auto-migration: If user has passwordSet: true but no passwordHash,
+      // automatically generate and store the hash for the provided password
+      if (!passwordHash && user.passwordSet) {
+        console.log(`🔄 User ${employeeId} missing password hash, attempting migration...`);
+
+        // For demo users, ensure they're using the correct demo password
+        if (this.isDemoUser(user.employeeId)) {
+          if (password !== 'WR2024') {
+            throw new Error('Demo users must use password "WR2024". Please try again.');
+          }
+          console.log(`   📝 Demo user ${employeeId} detected, using standard demo password`);
+        }
+
+        // Migrate user with the provided password
+        passwordHash = await this.migrateUserPasswordHash(user, password);
+      } else if (!passwordHash && !user.passwordSet) {
+        throw new Error('Account password not set. Please contact your administrator.');
+      }
+
+      const isPasswordValid = await verifyPassword(password, passwordHash);
+      if (!isPasswordValid) {
+        // Audit failed login attempt
+        await this.auditLoginAttempt(employeeId, false);
+        throw new Error('Invalid password. Please check your credentials and try again.');
+      }
+
+      // Update last login time (non-critical operation)
+      try {
+        console.log(`🕒 Updating last login time for ${user.employeeId}...`);
+        await usersService.updateLastLogin(user.employeeId);
+        console.log(`   ✅ Last login time updated successfully`);
+      } catch (lastLoginError) {
+        console.warn(`⚠️ Failed to update last login time (non-critical):`, lastLoginError);
+        // Don't fail the entire login process for this
+      }
+
+      // Audit successful login attempt
+      await this.auditLoginAttempt(employeeId, true);
+
+      console.log(`🎉 Login successful for ${user.employeeId} (${user.name})`);
+
+      // Convert to AppUser type with required fields
+      const appUser: AppUser = {
+        ...user,
+        createdAt: user.createdAt || new Date(),
+        updatedAt: user.updatedAt || new Date()
+      };
+
+      return appUser;
     } catch (error: any) {
-      // Enhanced error handling
-      if (error.code === 'auth/user-not-found') {
-        if (validation.format === 'email') {
-          throw new Error('No account found with this email address');
-        } else {
-          throw new Error('No account found with this Employee ID');
-        }
-      } else if (error.code === 'auth/wrong-password') {
-        throw new Error('Incorrect password');
-      } else if (error.code === 'auth/too-many-requests') {
-        throw new Error('Too many failed login attempts. Please try again later.');
-      } else if (error.code === 'auth/user-disabled') {
-        throw new Error('Account has been disabled. Please contact your administrator.');
+      console.error('Login error:', error);
+
+      // Audit failed login attempt for non-password errors
+      if (!error.message.includes('Invalid password')) {
+        await this.auditLoginAttempt(employeeId, false);
+      }
+
+      // Enhanced error handling for employee ID authentication
+      if (error.message.includes('No account found')) {
+        throw new Error(`No account found with Employee ID: ${cleanEmployeeId}`);
+      } else if (error.message.includes('not active')) {
+        throw new Error('Account is not active. Please contact your administrator.');
       }
 
       throw error;

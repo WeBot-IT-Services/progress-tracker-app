@@ -36,8 +36,8 @@ export default defineConfig({
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-      'Cross-Origin-Embedder-Policy': 'unsafe-none',
-      'Cross-Origin-Opener-Policy': 'same-origin-allow-popups'
+      'Cross-Origin-Embedder-Policy': 'unsafe-none'
+      // Removed Cross-Origin-Opener-Policy to fix development issues
     },
     proxy: {
       // Proxy Firebase API requests to avoid CORS issues

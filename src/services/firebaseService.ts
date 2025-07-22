@@ -17,6 +17,8 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage, isDevelopmentMode } from '../config/firebase';
+import type { User } from '../types/index';
+import { safeToDate } from '../utils/dateUtils';
 
 // Types
 export interface DesignData {
@@ -30,10 +32,13 @@ export interface DesignData {
 }
 
 export interface ProductionData {
+  status?: 'pending' | 'partial' | 'completed';
   assignedAt?: Date;
   completedAt?: Date;
+  partialCompletedAt?: Date;
   deliveryDate?: Date;
   lastModified?: Date;
+  hasFlowedFromPartial?: boolean;
   milestones?: Milestone[];
 }
 
@@ -71,13 +76,13 @@ export interface Project {
   progress?: number;
   createdAt?: Date;
   updatedAt?: Date;
-  createdBy?: string;
+  createdBy?: string; // Employee name (not UID)
   customerName?: string;
   customerEmail?: string;
   customerPhone?: string;
   customerAddress?: string;
   notes?: string;
-  assignedTo?: string;
+  assignedTo?: string; // Employee name (not UID)
   priority?: 'low' | 'medium' | 'high';
   projectType?: string;
   files?: string[];
@@ -88,27 +93,15 @@ export interface Project {
   photoMetadata?: PhotoMetadata[];
 }
 
-export interface User {
-  id?: string;
-  uid?: string;
-  name: string;
-  email: string;
-  role: 'admin' | 'sales' | 'designer' | 'production' | 'installation';
-  employeeId?: string;
-  status: 'active' | 'inactive';
-  createdAt?: Date;
-  updatedAt?: Date;
-  lastLogin?: Date;
-  isTemporary?: boolean;
-  passwordSet?: boolean;
-}
+// Use the User type from types/index.ts to avoid conflicts
+export type { User } from '../types/index';
 
 export interface MilestoneImage {
   id?: string;
   url: string;
   caption?: string;
   uploadedAt?: Date;
-  uploadedBy?: string;
+  uploadedBy?: string; // Employee name (not UID)
 }
 
 export interface Milestone {
@@ -122,7 +115,7 @@ export interface Milestone {
   completedDate?: Date; // Legacy support
   dueDate?: Date;
   progress?: number;
-  assignedTo?: string;
+  assignedTo?: string; // Employee name (not UID)
   createdAt?: Date;
   updatedAt?: Date;
   images?: string[];
@@ -259,18 +252,56 @@ export const projectsService = {
     }
   },
 
-  // Delete project
+  // Delete project with cascade cleanup
   async deleteProject(id: string): Promise<void> {
     if (!db) {
       throw new Error('Firebase not initialized');
     }
 
     try {
-      const docRef = doc(db, 'projects', id);
-      await deleteDoc(docRef);
-      console.log('Project deleted successfully');
+      console.log('🗑️ Starting comprehensive project deletion for:', id);
+
+      // Use a transaction to ensure all deletions succeed or fail together
+      await runTransaction(db, async (transaction) => {
+        // 1. Get and delete all associated milestones
+        const milestonesQuery = query(
+          collection(db, 'milestones'),
+          where('projectId', '==', id)
+        );
+        const milestonesSnapshot = await getDocs(milestonesQuery);
+
+        console.log(`Found ${milestonesSnapshot.docs.length} milestones to delete`);
+        milestonesSnapshot.docs.forEach(milestoneDoc => {
+          transaction.delete(milestoneDoc.ref);
+          console.log('Deleting milestone:', milestoneDoc.id);
+        });
+
+        // 2. Get and delete any document locks for this project
+        try {
+          const locksQuery = query(
+            collection(db, 'document_locks'),
+            where('projectId', '==', id)
+          );
+          const locksSnapshot = await getDocs(locksQuery);
+
+          console.log(`Found ${locksSnapshot.docs.length} document locks to delete`);
+          locksSnapshot.docs.forEach(lockDoc => {
+            transaction.delete(lockDoc.ref);
+            console.log('Deleting document lock:', lockDoc.id);
+          });
+        } catch (lockError) {
+          console.warn('Error deleting document locks (collection may not exist):', lockError);
+        }
+
+        // 3. Delete the main project document
+        const projectRef = doc(db, 'projects', id);
+        transaction.delete(projectRef);
+        console.log('Deleting project document:', id);
+      });
+
+      console.log('✅ Project and all associated data deleted successfully');
     } catch (error) {
-      console.error('Error deleting project:', error);
+      console.error('❌ Error during comprehensive project deletion:', error);
       throw error;
     }
   },
@@ -334,10 +365,20 @@ export const projectsService = {
           orderBy('createdAt', 'desc')
         )
       );
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Milestone[];
+      
+      return querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          // Convert Firestore Timestamps to Date objects
+          startDate: data.startDate ? safeToDate(data.startDate) : undefined,
+          dueDate: data.dueDate ? safeToDate(data.dueDate) : undefined,
+          completedDate: data.completedDate ? safeToDate(data.completedDate) : undefined,
+          createdAt: data.createdAt ? safeToDate(data.createdAt) : undefined,
+          updatedAt: data.updatedAt ? safeToDate(data.updatedAt) : undefined,
+        } as Milestone;
+      });
     } catch (error) {
       console.error('Error getting milestones by project:', error);
       throw error;
@@ -360,13 +401,11 @@ export const projectsService = {
         return;
       }
 
-      // Calculate proper start dates (today + 1 week intervals)
+      // Calculate proper start dates (starting today)
       const baseDate = new Date();
-      const paintingStartDate = new Date(baseDate);
-      paintingStartDate.setDate(baseDate.getDate() + 7); // Start in 1 week
+      const paintingStartDate = new Date(baseDate); // Start today
       
-      const assemblyStartDate = new Date(paintingStartDate);
-      assemblyStartDate.setDate(paintingStartDate.getDate() + 14); // Start 2 weeks after painting
+      const assemblyStartDate = new Date(baseDate); // Start today
 
       const defaultMilestones = [
         {
@@ -375,7 +414,7 @@ export const projectsService = {
           description: 'Complete painting process',
           status: 'pending' as const,
           module: 'production' as const,
-          startDate: paintingStartDate,
+          startDate: paintingStartDate, // Starts today
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         },
@@ -385,7 +424,7 @@ export const projectsService = {
           description: 'Complete assembly and welding processes',
           status: 'pending' as const,
           module: 'production' as const,
-          startDate: assemblyStartDate,
+          startDate: assemblyStartDate, // Starts today
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         }
@@ -423,10 +462,20 @@ export const milestonesService = {
           orderBy('createdAt', 'desc')
         )
       );
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Milestone[];
+      
+      return querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          // Convert Firestore Timestamps to Date objects
+          startDate: data.startDate ? safeToDate(data.startDate) : undefined,
+          dueDate: data.dueDate ? safeToDate(data.dueDate) : undefined,
+          completedDate: data.completedDate ? safeToDate(data.completedDate) : undefined,
+          createdAt: data.createdAt ? safeToDate(data.createdAt) : undefined,
+          updatedAt: data.updatedAt ? safeToDate(data.updatedAt) : undefined,
+        } as Milestone;
+      });
     } catch (error) {
       console.error('Error getting milestones:', error);
       return []; // Return empty array if no milestones found
@@ -483,6 +532,62 @@ export const milestonesService = {
       console.error('Error deleting milestone:', error);
       throw error;
     }
+  },
+
+  // Clean up orphaned milestones (milestones whose projects no longer exist)
+  async cleanupOrphanedMilestones(): Promise<{ cleaned: number; errors: string[] }> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      console.log('🧹 Starting orphaned milestone cleanup...');
+
+      // Get all milestones
+      const milestonesSnapshot = await getDocs(collection(db, 'milestones'));
+      const milestones = milestonesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      console.log(`Found ${milestones.length} total milestones to check`);
+
+      // Get all existing project IDs
+      const projectsSnapshot = await getDocs(collection(db, 'projects'));
+      const existingProjectIds = new Set(projectsSnapshot.docs.map(doc => doc.id));
+
+      console.log(`Found ${existingProjectIds.size} existing projects`);
+
+      // Find orphaned milestones
+      const orphanedMilestones = milestones.filter(milestone =>
+        (milestone as any).projectId && !existingProjectIds.has((milestone as any).projectId)
+      );
+
+      console.log(`Found ${orphanedMilestones.length} orphaned milestones`);
+
+      const errors: string[] = [];
+      let cleaned = 0;
+
+      // Delete orphaned milestones in batches
+      for (const milestone of orphanedMilestones) {
+        try {
+          await deleteDoc(doc(db, 'milestones', milestone.id));
+          console.log(`Deleted orphaned milestone: ${milestone.id} (project: ${(milestone as any).projectId})`);
+          cleaned++;
+        } catch (error) {
+          const errorMsg = `Failed to delete milestone ${milestone.id}: ${error.message}`;
+          console.error(errorMsg);
+          errors.push(errorMsg);
+        }
+      }
+
+      console.log(`✅ Cleanup completed: ${cleaned} milestones cleaned, ${errors.length} errors`);
+
+      return { cleaned, errors };
+    } catch (error) {
+      console.error('❌ Error during orphaned milestone cleanup:', error);
+      throw error;
+    }
   }
 };
 
@@ -496,18 +601,68 @@ export const usersService = {
 
     try {
       const querySnapshot = await getDocs(collection(db, 'users'));
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as User[];
+      return querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          employeeId: data.employeeId || doc.id,
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt || new Date(),
+          updatedAt: data.updatedAt || new Date()
+        } as unknown as User;
+      });
     } catch (error) {
       console.error('Error getting users:', error);
       throw error;
     }
   },
 
-  // Get user by ID
-  async getUser(id: string): Promise<User> {
+  // Get user by employee ID (primary method)
+  async getUser(employeeId: string): Promise<User> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      // Try direct lookup first (if employee ID is used as document ID)
+      const docRef = doc(db, 'users', employeeId);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        return { ...docSnap.data() } as User;
+      }
+
+      // Fallback to query-based lookup for backward compatibility
+      const querySnapshot = await getDocs(
+        query(collection(db, 'users'), where('employeeId', '==', employeeId))
+      );
+
+      if (querySnapshot.empty) {
+        throw new Error('User not found');
+      }
+
+      const userDoc = querySnapshot.docs[0];
+      return { ...userDoc.data() } as User;
+    } catch (error) {
+      console.error('Error getting user:', error);
+      throw error;
+    }
+  },
+
+  // Get user by employee ID (alias for consistency)
+  async getUserByEmployeeId(employeeId: string): Promise<User | null> {
+    try {
+      const user = await this.getUser(employeeId);
+      return user;
+    } catch (error) {
+      // If user not found, return null instead of throwing
+      console.log(`User with employee ID ${employeeId} not found`);
+      return null;
+    }
+  },
+
+  // Get user by legacy ID (for backward compatibility)
+  async getUserByLegacyId(id: string): Promise<User> {
     if (!db) {
       throw new Error('Firebase not initialized');
     }
@@ -515,39 +670,96 @@ export const usersService = {
     try {
       const docRef = doc(db, 'users', id);
       const docSnap = await getDoc(docRef);
-      
+
       if (docSnap.exists()) {
-        return { id: docSnap.id, ...docSnap.data() } as User;
+        return { ...docSnap.data() } as User;
       } else {
         throw new Error('User not found');
       }
     } catch (error) {
-      console.error('Error getting user:', error);
+      console.error('Error getting user by legacy ID:', error);
       throw error;
     }
   },
 
-  // Create user
-  async createUser(user: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  // Create user (using employee ID as document ID)
+  async createUser(user: Omit<User, 'createdAt' | 'updatedAt'>): Promise<string> {
     if (!db) {
       throw new Error('Firebase not initialized');
     }
 
     try {
-      const docRef = await addDoc(collection(db, 'users'), {
+      if (!user.employeeId) {
+        throw new Error('Employee ID is required');
+      }
+
+      // Check if user with this employee ID already exists
+      const existingUserQuery = query(
+        collection(db, 'users'),
+        where('employeeId', '==', user.employeeId)
+      );
+      const existingUserSnapshot = await getDocs(existingUserQuery);
+
+      if (!existingUserSnapshot.empty) {
+        throw new Error('User with this employee ID already exists');
+      }
+
+      // Use employee ID as document ID for easy lookup
+      const docRef = doc(db, 'users', user.employeeId);
+      await setDoc(docRef, {
         ...user,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
-      return docRef.id;
+
+      return user.employeeId;
     } catch (error) {
       console.error('Error creating user:', error);
       throw error;
     }
   },
 
-  // Update user
-  async updateUser(id: string, updates: Partial<User>): Promise<void> {
+  // Update user by employee ID
+  async updateUser(employeeId: string, updates: Partial<User>): Promise<void> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      // Try direct update first (if employee ID is used as document ID)
+      const docRef = doc(db, 'users', employeeId);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        await updateDoc(docRef, {
+          ...updates,
+          updatedAt: serverTimestamp()
+        });
+        return;
+      }
+
+      // Fallback to query-based update for backward compatibility
+      const querySnapshot = await getDocs(
+        query(collection(db, 'users'), where('employeeId', '==', employeeId))
+      );
+
+      if (querySnapshot.empty) {
+        throw new Error('User not found');
+      }
+
+      const userDoc = querySnapshot.docs[0];
+      await updateDoc(userDoc.ref, {
+        ...updates,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error updating user:', error);
+      throw error;
+    }
+  },
+
+  // Update user by legacy ID (for backward compatibility)
+  async updateUserByLegacyId(id: string, updates: Partial<User>): Promise<void> {
     if (!db) {
       throw new Error('Firebase not initialized');
     }
@@ -559,13 +771,46 @@ export const usersService = {
         updatedAt: serverTimestamp()
       });
     } catch (error) {
-      console.error('Error updating user:', error);
+      console.error('Error updating user by legacy ID:', error);
       throw error;
     }
   },
 
-  // Delete user
-  async deleteUser(id: string): Promise<void> {
+  // Delete user by employee ID
+  async deleteUser(employeeId: string): Promise<void> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      // Try direct deletion first (if employee ID is used as document ID)
+      const docRef = doc(db, 'users', employeeId);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        await deleteDoc(docRef);
+        return;
+      }
+
+      // Fallback to query-based deletion for backward compatibility
+      const querySnapshot = await getDocs(
+        query(collection(db, 'users'), where('employeeId', '==', employeeId))
+      );
+
+      if (querySnapshot.empty) {
+        throw new Error('User not found');
+      }
+
+      const userDoc = querySnapshot.docs[0];
+      await deleteDoc(userDoc.ref);
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
+  },
+
+  // Delete user by legacy ID (for backward compatibility)
+  async deleteUserByLegacyId(id: string): Promise<void> {
     if (!db) {
       throw new Error('Firebase not initialized');
     }
@@ -574,49 +819,130 @@ export const usersService = {
       const docRef = doc(db, 'users', id);
       await deleteDoc(docRef);
     } catch (error) {
-      console.error('Error deleting user:', error);
+      console.error('Error deleting user by legacy ID:', error);
       throw error;
     }
   },
 
-  // Get user by employee ID
-  async getUserByEmployeeId(employeeId: string): Promise<User | null> {
+  // Note: updateLastLogin function moved to end of service for better error handling
+
+  // Create user with password hash
+  async createUserWithPassword(userData: Omit<User, 'createdAt' | 'updatedAt'>, password: string): Promise<string> {
     if (!db) {
       throw new Error('Firebase not initialized');
     }
 
     try {
-      const querySnapshot = await getDocs(
-        query(collection(db, 'users'), where('employeeId', '==', employeeId))
-      );
-      
-      if (querySnapshot.empty) {
-        return null;
+      if (!userData.employeeId) {
+        throw new Error('Employee ID is required');
       }
 
-      const userDoc = querySnapshot.docs[0];
-      return { id: userDoc.id, ...userDoc.data() } as User;
+      // Import password utilities
+      const { hashPassword } = await import('../utils/passwordUtils');
+
+      // Hash the password
+      const passwordHash = await hashPassword(password);
+
+      // Check if user with this employee ID already exists
+      const existingUserQuery = query(
+        collection(db, 'users'),
+        where('employeeId', '==', userData.employeeId)
+      );
+      const existingUserSnapshot = await getDocs(existingUserQuery);
+
+      if (!existingUserSnapshot.empty) {
+        throw new Error('User with this employee ID already exists');
+      }
+
+      // Create user with password hash
+      const userWithPassword = {
+        ...userData,
+        passwordHash,
+        passwordSet: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      // Use employee ID as document ID for easy lookup
+      const docRef = doc(db, 'users', userData.employeeId);
+      await setDoc(docRef, userWithPassword);
+
+      return userData.employeeId;
     } catch (error) {
-      console.error('Error getting user by employee ID:', error);
+      console.error('Error creating user with password:', error);
       throw error;
     }
   },
 
-  // Update last login
-  async updateLastLogin(userId: string): Promise<void> {
+  // Update user password
+  async updateUserPassword(employeeId: string, newPassword: string): Promise<void> {
     if (!db) {
       throw new Error('Firebase not initialized');
     }
 
     try {
-      const docRef = doc(db, 'users', userId);
-      await updateDoc(docRef, {
+      // Import password utilities
+      const { hashPassword } = await import('../utils/passwordUtils');
+
+      // Hash the new password
+      const passwordHash = await hashPassword(newPassword);
+
+      await this.updateUser(employeeId, {
+        passwordHash,
+        passwordSet: true,
+        updatedAt: new Date()
+      });
+    } catch (error) {
+      console.error('Error updating user password:', error);
+      throw error;
+    }
+  },
+
+  // Note: getUserByEmployeeId is implemented above as an alias to getUser
+
+  // Update last login (robust version that finds user by employee ID)
+  async updateLastLogin(employeeIdOrUserId: string): Promise<void> {
+    if (!db) {
+      throw new Error('Firebase not initialized');
+    }
+
+    try {
+      console.log(`🔄 Updating last login for: ${employeeIdOrUserId}`);
+
+      // First, try to find the user by employee ID
+      let userDocRef = null;
+      let userDocId = null;
+
+      try {
+        // Try to get user by employee ID first
+        const user = await this.getUserByEmployeeId(employeeIdOrUserId);
+        if (user && user.id) {
+          userDocId = user.id;
+          userDocRef = doc(db, 'users', user.id);
+          console.log(`   📍 Found user document by employee ID: ${user.id}`);
+        }
+      } catch (error) {
+        console.log(`   ⚠️ Could not find user by employee ID, trying direct document access...`);
+      }
+
+      // If not found by employee ID, try direct document access
+      if (!userDocRef) {
+        userDocId = employeeIdOrUserId;
+        userDocRef = doc(db, 'users', employeeIdOrUserId);
+        console.log(`   📍 Using direct document access: ${employeeIdOrUserId}`);
+      }
+
+      // Update the document
+      await updateDoc(userDocRef, {
         lastLogin: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
+
+      console.log(`   ✅ Last login updated successfully for document: ${userDocId}`);
     } catch (error) {
       console.error('Error updating last login:', error);
-      throw error;
+      // Don't throw error for last login update failure - it's not critical
+      console.log('   ⚠️ Last login update failed, but continuing with authentication...');
     }
   },
 };
@@ -953,7 +1279,13 @@ export const adminUserService = {
         message: userData.passwordSet ? 'Password already set' : 'Password needs to be set',
         isTemporary: userData.isTemporary,
         passwordSet: userData.passwordSet,
-        user: { id: userDoc.id, ...userData }
+        user: {
+          employeeId: userData.employeeId || userDoc.id,
+          id: userDoc.id,
+          ...userData,
+          createdAt: userData.createdAt || new Date(),
+          updatedAt: userData.updatedAt || new Date()
+        } as User
       };
     } catch (error) {
       console.error('Error checking password status:', error);

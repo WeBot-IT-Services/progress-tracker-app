@@ -4,9 +4,9 @@
 
 class ForceUpdateClient {
   constructor() {
-    this.version = '3.14.0';
-    this.buildId = 'd70f53b-1751963670395';
-    this.buildTimestamp = 1751963670395;
+    this.version = '3.15.0';
+    this.buildId = 'd26bb59-1752827539573';
+    this.buildTimestamp = 1752827539573;
     this.checkInterval = 5 * 60 * 1000; // Check every 5 minutes
     this.lastUpdateCheck = 0;
     this.updateInProgress = false;

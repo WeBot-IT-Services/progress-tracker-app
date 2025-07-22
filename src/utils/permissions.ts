@@ -23,16 +23,38 @@ export const getModulePermissions = (userRole: UserRole, moduleType: string): Mo
   // All users can view all modules - this is the key requirement
   const canView = true;
 
+  // Delete permissions - only admin users can delete projects
+  const getDeletePermission = (userRole: UserRole, moduleType: string): boolean => {
+    // For projects (sales module and tracker), only admin users can delete
+    if (moduleType === 'sales' || moduleType === 'tracker') {
+      return userRole === 'admin';
+    }
+    // For other modules, maintain existing admin-only delete permissions
+    return canEdit && userRole === 'admin';
+  };
+
   return {
     canView,
     canEdit,
-    canDelete: canEdit && userRole === 'admin', // Only admin can delete
+    canDelete: getDeletePermission(userRole, moduleType),
     canCreate: canEdit
   };
 };
 
 export const canViewAmount = (userRole: UserRole): boolean => {
   return userRole === 'admin' || userRole === 'sales';
+};
+
+export const canDeleteProject = (userRole: UserRole): boolean => {
+  // Only admin users can delete projects
+  return userRole === 'admin';
+};
+
+export const getUserIdentifier = (user: any): string => {
+  // Safely get user identifier for Firestore operations
+  // Prioritize name, then employeeId, then fallback to 'Unknown User'
+  if (!user) return 'Unknown User';
+  return user.name || user.employeeId || user.email || 'Unknown User';
 };
 
 export const canEditProject = (userRole: UserRole, projectStatus: string): boolean => {

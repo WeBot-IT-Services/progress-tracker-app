@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 
 const ChangePasswordForm: React.FC = () => {
   const { changePassword } = useAuth();
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +27,7 @@ const ChangePasswordForm: React.FC = () => {
 
     try {
       setLoading(true);
-      await changePassword(newPassword);
+      await changePassword(currentPassword, newPassword);
       navigate('/');
     } catch (err: any) {
       if (err.message.includes('Session expired')) {
@@ -45,6 +46,16 @@ const ChangePasswordForm: React.FC = () => {
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded-md shadow-md w-full max-w-sm">
         <h2 className="text-xl font-semibold mb-4">Change Your Password</h2>
         {error && <div className="text-red-600 mb-2">{error}</div>}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-1">Current Password</label>
+          <input
+            type="password"
+            value={currentPassword}
+            onChange={e => setCurrentPassword(e.target.value)}
+            className="w-full px-3 py-2 border rounded-md"
+            disabled={loading}
+          />
+        </div>
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">New Password</label>
           <input

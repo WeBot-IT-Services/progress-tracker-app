@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Edit, Trash2, DollarSign, Plus, ArrowRight, Lock, X, Save, Calendar } from 'lucide-react';
 import ModuleContainer from '../common/ModuleContainer';
+import Modal from '../common/Modal';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectsService, type Project } from '../../services/firebaseService';
 import { getModulePermissions, canViewAmount } from '../../utils/permissions';
@@ -111,7 +112,7 @@ const SalesModule: React.FC = () => {
         estimatedCompletionDate: formData.deliveryDate ? new Date(formData.deliveryDate) : new Date(),
         // Projects now start in 'sales' status, not 'DNE'
         status: 'sales' as const,
-        createdBy: currentUser.uid
+        createdBy: currentUser.name // Use employee name instead of UID
       };
 
       console.log('Creating project with data:', projectData);
@@ -206,7 +207,7 @@ const SalesModule: React.FC = () => {
   const handleDeleteProject = async (projectId: string) => {
     // Check if user can delete projects
     if (!permissions.canDelete) {
-      alert('You do not have permission to delete projects.');
+      alert('You do not have permission to delete projects. Only admin users can delete projects.');
       return;
     }
 
@@ -214,7 +215,7 @@ const SalesModule: React.FC = () => {
     const projectName = project?.projectName || 'Unknown Project';
 
     // Enhanced confirmation dialog
-    const confirmMessage = `⚠️ DELETE PROJECT CONFIRMATION ⚠️
+    const confirmMessage = `DELETE PROJECT CONFIRMATION
 
 Project: ${projectName}
 ID: ${projectId}
@@ -240,11 +241,11 @@ Are you absolutely sure you want to delete this project?`;
       const updatedProjects = await projectsService.getProjects();
       setProjects(updatedProjects);
 
-      alert(`✅ Project "${projectName}" has been successfully deleted along with all associated data.`);
-      console.log('🗑️ Project deletion completed successfully');
+      alert(`Project "${projectName}" has been successfully deleted along with all associated data.`);
+      console.log('Project deletion completed successfully');
     } catch (error) {
       console.error('Error deleting project:', error);
-      alert(`❌ Failed to delete project "${projectName}". Please try again.\n\nError: ${error.message}`);
+      alert(`Failed to delete project "${projectName}". Please try again.\n\nError: ${error.message}`);
     }
   };
 
@@ -327,7 +328,7 @@ Are you absolutely sure you want to delete this project?`;
               }`}
             >
               <Plus className="w-4 h-4 mr-2" />
-              Add Project
+              Manage Sales
             </button>
             <button
               onClick={() => setActiveView('history')}
@@ -337,7 +338,7 @@ Are you absolutely sure you want to delete this project?`;
                   : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
               }`}
             >
-              Project History
+              Sales History
             </button>
           </div>
         </div>
@@ -456,74 +457,48 @@ Are you absolutely sure you want to delete this project?`;
               </div>
             ) : (
               projects.map((project) => (
-                <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between mb-3">
-                        <h3 className="text-lg font-semibold text-gray-900 flex-1 pr-4">
-                          {project.projectName}
-                        </h3>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 ${getStatusColor(project.status)}`}>
-                          {project.status}
-                        </span>
-                      </div>
-                      {project.description && (
-                        <p className="text-gray-600 mb-3">{project.description}</p>
-                      )}
-
-                      {/* Collaboration Status */}
-                      {project.id && (
-                        <div className="mb-3">
-                          <ProjectCollaborationStatus projectId={project.id} />
-                        </div>
-                      )}
-
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-3">
-                        <span>Delivery: {safeFormatDate(project.deliveryDate)}</span>
-                        {canViewAmountField && project.amount && (
-                          <span className="font-medium text-green-600">Amount: RM {project.amount.toLocaleString()}</span>
-                        )}
-                        <span>Created: {safeFormatDate(project.createdAt)}</span>
-                      </div>
-
-                      {/* Action Buttons for Sales Projects */}
-                      {project.status === 'sales' && permissions.canEdit && (
-                        <div className="mt-4 pt-3 border-t border-gray-200">
-                          <button
-                            onClick={() => handleMoveToDesign(project.id!)}
-                            className="flex items-center bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                          >
-                            <ArrowRight className="w-4 h-4 mr-2" />
-                            Move to Design
-                          </button>
-                        </div>
-                      )}
+                <div key={project.id} className="bg-white rounded-2xl shadow p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4">
+                  <div>
+                    <div className="flex items-center mb-1">
+                      <span className="text-xl font-bold text-gray-900 mr-2">{project.projectName}</span>
+                      <span className={`ml-2 px-3 py-1 rounded-full ${getStatusColor(project.status)} text-xs font-semibold`}>
+                        {project.status}
+                      </span>
                     </div>
-                    <div className="flex items-start space-x-2 ml-6 flex-shrink-0">
-                      {permissions.canEdit && (
-                        <button
-                          onClick={() => handleEditProject(project)}
-                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Edit project"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
+                    {project.description && (
+                      <div className="text-gray-700 mb-2">{project.description}</div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
+                      <span className="flex items-center">
+                        <Calendar className="w-4 h-4 mr-1" />
+                        Modified {safeFormatDate(project.updatedAt || project.createdAt)}
+                      </span>
+                      <span>Delivery: {safeFormatDate(project.deliveryDate)}</span>
+                      {canViewAmountField && project.amount && (
+                        <span className="text-green-600 font-semibold">Amount: RM {project.amount.toLocaleString()}</span>
                       )}
-                      {permissions.canDelete && (
-                        <button
-                          onClick={() => handleDeleteProject(project.id!)}
-                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete project"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                      {!permissions.canEdit && (
-                        <div className="p-2 text-gray-300" title="Read-only access">
-                          <Lock className="h-4 w-4" />
-                        </div>
-                      )}
+                      <span>Created: {safeFormatDate(project.createdAt)}</span>
                     </div>
+                  </div>
+                  <div className="flex items-center mt-4 sm:mt-0 space-x-3">
+                    {permissions.canEdit && (
+                      <button
+                        onClick={() => handleEditProject(project)}
+                        className="text-gray-400 hover:text-blue-600"
+                        title="Edit project"
+                      >
+                        <Edit className="w-5 h-5" />
+                      </button>
+                    )}
+                    {permissions.canDelete && (
+                      <button
+                        onClick={() => handleDeleteProject(project.id!)}
+                        className="text-gray-400 hover:text-red-600"
+                        title="Delete project"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))
@@ -534,96 +509,98 @@ Are you absolutely sure you want to delete this project?`;
       </ModuleContainer>
 
       {/* Edit Project Modal */}
-      {showEditForm && editingProject && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">Edit Project</h3>
-
-              {/* Collaboration Banner */}
-              <CollaborationBanner
-                users={[]}
-                className="mb-4"
-              />
-
-              <form onSubmit={handleUpdateProject} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Project Name
-                  </label>
-                  <input
-                    type="text"
-                    name="projectName"
-                    value={formData.projectName}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    placeholder="Enter project name"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Description
-                  </label>
-                  <textarea
-                    name="description"
-                    value={formData.description}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    placeholder="Enter project description"
-                    rows={3}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Amount (RM)
-                  </label>
-                  <input
-                    type="number"
-                    name="amount"
-                    value={formData.amount}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    placeholder="Enter project amount"
-                    step="0.01"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Delivery Date
-                  </label>
-                  <input
-                    type="date"
-                    name="deliveryDate"
-                    value={formData.deliveryDate}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-
-                <div className="flex space-x-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={closeEditForm}
-                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-xl transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="flex-1 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-500 text-white py-2 px-4 rounded-xl transition-all duration-200"
-                  >
-                    {submitting ? 'Updating...' : 'Update Project'}
-                  </button>
-                </div>
-              </form>
-            </div>
+      <Modal
+        isOpen={showEditForm && !!editingProject}
+        onClose={closeEditForm}
+        title="Edit Project"
+        subtitle={editingProject?.projectName}
+        size="md"
+        footer={
+          <div className="flex space-x-3">
+            <button
+              type="button"
+              onClick={closeEditForm}
+              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-4 rounded-xl transition-colors min-h-[44px]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="edit-project-form"
+              disabled={submitting}
+              className="flex-1 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-500 text-white py-3 px-4 rounded-xl transition-all duration-200 min-h-[44px]"
+            >
+              {submitting ? 'Updating...' : 'Update Project'}
+            </button>
           </div>
-        )}
+        }
+      >
+        {/* Collaboration Banner */}
+        <CollaborationBanner
+          users={[]}
+          className="mb-4"
+        />
+
+        <form id="edit-project-form" onSubmit={handleUpdateProject} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Project Name
+            </label>
+            <input
+              type="text"
+              name="projectName"
+              value={formData.projectName}
+              onChange={handleInputChange}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent text-base"
+              placeholder="Enter project name"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Description
+            </label>
+            <textarea
+              name="description"
+              value={formData.description}
+              onChange={handleInputChange}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent text-base"
+              placeholder="Enter project description"
+              rows={3}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Amount (RM)
+            </label>
+            <input
+              type="number"
+              name="amount"
+              value={formData.amount}
+              onChange={handleInputChange}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent text-base"
+              placeholder="Enter project amount"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Delivery Date
+            </label>
+            <input
+              type="date"
+              name="deliveryDate"
+              value={formData.deliveryDate}
+              onChange={handleInputChange}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent text-base"
+              required
+            />
+          </div>
+        </form>
+      </Modal>
 
         {/* Success Message */}
         {showSuccess && (

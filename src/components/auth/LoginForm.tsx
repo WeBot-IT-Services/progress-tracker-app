@@ -1,22 +1,18 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import MysteelLogo from '../common/MysteelLogo';
-import FirstTimePasswordSetup from './FirstTimePasswordSetup';
-import { adminUserService } from '../../services/adminUserService';
 import EnhancedEmployeeIdAuthService from '../../services/enhancedEmployeeIdAuth';
 import type { UserRole } from '../../types';
 import {
-  Eye,
-  EyeOff,
-  Mail,
-  Lock,
   User,
   ArrowRight,
   CheckCircle,
-  Settings,
-  Key,
   AlertCircle,
-  Info
+  Info,
+  Settings,
+  Eye,
+  EyeOff,
+  Lock
 } from 'lucide-react';
 
 interface LoginFormProps {
@@ -24,9 +20,9 @@ interface LoginFormProps {
 }
 
 const LoginForm: React.FC<LoginFormProps> = () => {
-  const { login, register } = useAuth();
+  const { login } = useAuth();
   const [formData, setFormData] = useState({
-    identifier: '',
+    employeeId: '',
     password: '',
     name: '',
     role: 'sales' as UserRole
@@ -34,56 +30,61 @@ const LoginForm: React.FC<LoginFormProps> = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showPasswordSetup, setShowPasswordSetup] = useState(false);
-  const [firstTimeEmail, setFirstTimeEmail] = useState('');
-  const [identifierValidation, setIdentifierValidation] = useState<any>(null);
   const [showEmployeeIdHelp, setShowEmployeeIdHelp] = useState(false);
 
   // Quick access employee IDs for Firebase demo users
   const [quickAccessIds] = useState([
     { id: 'A0001', department: 'Admin', name: 'Admin', icon: '👑', color: 'from-yellow-400 to-yellow-600' },
-    { id: 'S0001', department: 'Sales', name: 'Sales', icon: '💼', color: 'from-blue-400 to-blue-600' },
-    { id: 'D0001', department: 'Design', name: 'Design', icon: '🎨', color: 'from-purple-400 to-purple-600' },
-    { id: 'P0001', department: 'Production', name: 'Production', icon: '🏭', color: 'from-green-400 to-green-600' },
-    { id: 'I0001', department: 'Install', name: 'Install', icon: '🔧', color: 'from-orange-400 to-orange-600' }
+    { id: 'S0001', department: 'Sales', name: 'Sales', icon: '', color: 'from-blue-400 to-blue-600' },
+    { id: 'D0001', department: 'Design', name: 'Design', icon: '', color: 'from-purple-400 to-purple-600' },
+    { id: 'P0001', department: 'Production', name: 'Production', icon: '', color: 'from-green-400 to-green-600' },
+    { id: 'I0001', department: 'Install', name: 'Install', icon: '', color: 'from-orange-400 to-orange-600' }
   ]);
 
 
 
-  // Validate identifier as user types
-  const validateIdentifier = (identifier: string) => {
-    const validation = EnhancedEmployeeIdAuthService.validateIdentifier(identifier);
-    setIdentifierValidation(validation);
-    return validation;
-  };
+  // Note: Quick access functionality integrated into demo login
 
-  // Quick access handler - now includes demo login
-  const handleQuickAccess = (employeeId: string) => {
-    setFormData(prev => ({ ...prev, identifier: employeeId }));
-    validateIdentifier(employeeId);
-  };
-
-  // Firebase-based demo login handler
+  // Enhanced demo login handler with detailed debugging
   const handleDemoLogin = async (employeeId: string) => {
     setLoading(true);
     setError('');
 
     try {
-      console.log(`🎯 Attempting Firebase demo login for Employee ID: ${employeeId}`);
+      console.log('🚀 Demo Login Debug Info:');
+      console.log(`   Employee ID: ${employeeId}`);
+      console.log(`   Password: WR2024`);
+      console.log(`   Expected Hash: 79daf4758343c745343debd60f51a057923ca343fdc2df42c7b38b6919566749`);
 
-      // Use the standard Firebase authentication flow
-      // The demo users must exist in Firebase Authentication with proper credentials
-      await login(employeeId, 'WR2024'); // Standard demo password for Firebase users
+      console.log(`   ✅ Employee ID accepted: ${employeeId}`);
+      console.log(`   🔐 Attempting authentication...`);
 
-      console.log(`✅ Firebase demo login successful for ${employeeId}`);
+      // Use demo password for quick access
+      await login(employeeId, 'WR2024');
+
+      console.log(`   ✅ Demo login successful for ${employeeId}`);
     } catch (authError: any) {
-      console.log('❌ Firebase demo login failed:', authError.message);
+      console.error('❌ Demo login failed:', authError);
+      console.log('   Error details:', {
+        message: authError.message,
+        stack: authError.stack
+      });
 
-      // Provide helpful error message for missing demo users
-      if (authError.message.includes('No account found') || authError.message.includes('invalid-credential')) {
-        setError(`Demo user ${employeeId} not found in Firebase. Please ensure demo users are created in Firebase Authentication.`);
+      // Provide specific error messages based on the failure type
+      if (authError.message.includes('No account found')) {
+        setError(`❌ User Not Found: Employee ID "${employeeId}" does not exist in the database. Demo users may not be set up yet.`);
+      } else if (authError.message.includes('Invalid password')) {
+        setError(`❌ Password Mismatch: Demo user "${employeeId}" exists but password doesn't match "WR2024".`);
+      } else if (authError.message.includes('not active')) {
+        setError(`❌ Account Inactive: Employee ID "${employeeId}" exists but account status is not active.`);
+      } else if (authError.message.includes('password not set')) {
+        setError(`❌ Password Not Set: Employee ID "${employeeId}" exists but password is not configured.`);
+      } else if (authError.message.includes('migration failed')) {
+        setError(`❌ Migration Failed: Could not update user "${employeeId}" with password hash. Please try again.`);
+      } else if (authError.message.includes('Demo users must use password')) {
+        setError(`❌ Wrong Password: Demo users must use password "WR2024".`);
       } else {
-        setError('Demo login failed. Please try again or contact administrator.');
+        setError(`❌ Demo Login Failed: ${authError.message || 'Unknown error occurred'}`);
       }
     } finally {
       setLoading(false);
@@ -98,24 +99,8 @@ const LoginForm: React.FC<LoginFormProps> = () => {
     setError('');
 
     try {
-      // Use enhanced employee ID authentication service
-      try {
-        await EnhancedEmployeeIdAuthService.login(formData.identifier, formData.password);
-      } catch (authError: any) {
-        // Check if this is a first-time user that needs password setup
-        if (authError.code === 'auth/invalid-credential' || authError.code === 'auth/user-not-found') {
-          const email = formData.identifier.includes('@') ? formData.identifier : null;
-          if (email) {
-            const userStatus = await adminUserService.checkPasswordStatus(email);
-            if (userStatus.exists && userStatus.needsPassword) {
-              setFirstTimeEmail(email);
-              setShowPasswordSetup(true);
-              return;
-            }
-          }
-        }
-        throw authError;
-      }
+      // Use employee ID + password authentication
+      await login(formData.employeeId, formData.password);
     } catch (error: any) {
       setError(error.message || 'An error occurred during authentication');
     } finally {
@@ -129,80 +114,21 @@ const LoginForm: React.FC<LoginFormProps> = () => {
       ...prev,
       [name]: value
     }));
-    
-    // Validate identifier on change
-    if (name === 'identifier') {
-      validateIdentifier(value);
-    }
-    
+
     if (error) setError('');
   };
 
-  // Get appropriate icon based on identifier type
+  // Get appropriate icon for employee ID input
   const getIdentifierIcon = () => {
-    if (!identifierValidation) return <Mail className="w-5 h-5 text-white/40" />;
-    
-    switch (identifierValidation.format) {
-      case 'email': return <Mail className="w-5 h-5 text-blue-400" />;
-      case 'employeeId': return <User className="w-5 h-5 text-green-400" />;
-      default: return <Mail className="w-5 h-5 text-white/40" />;
-    }
+    return <User className="w-5 h-5 text-white/40" />;
   };
 
-  // Get validation message
+  // No validation message needed
   const getValidationMessage = () => {
-    if (!identifierValidation || !formData.identifier) return null;
-    
-    if (identifierValidation.format === 'invalid' && formData.identifier.length > 0) {
-      return (
-        <div className="flex items-center text-red-300 text-sm mt-1">
-          <AlertCircle className="w-4 h-4 mr-1" />
-          {identifierValidation.error}
-        </div>
-      );
-    }
-    
-    if (identifierValidation.format === 'employeeId') {
-      return (
-        <div className="flex items-center text-green-300 text-sm mt-1">
-          <CheckCircle className="w-4 h-4 mr-1" />
-          Valid Employee ID ({identifierValidation.department?.toUpperCase()})
-        </div>
-      );
-    }
-    
-    if (identifierValidation.format === 'email') {
-      return (
-        <div className="flex items-center text-blue-300 text-sm mt-1">
-          <CheckCircle className="w-4 h-4 mr-1" />
-          Valid email format
-        </div>
-      );
-    }
-    
-    return null;
+    return null; // No validation feedback needed
   };
 
-  // If showing password setup, render that component instead
-  if (showPasswordSetup) {
-    return (
-      <FirstTimePasswordSetup
-        email={firstTimeEmail}
-        onComplete={(success) => {
-          setShowPasswordSetup(false);
-          if (success) {
-            // Password was set successfully, show success message
-            setError('');
-            alert('Password set successfully! Please log in with your new password.');
-          }
-        }}
-        onBack={() => {
-          setShowPasswordSetup(false);
-          setFirstTimeEmail('');
-        }}
-      />
-    );
-  }
+  // Note: Password setup removed - using employee ID only authentication
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 relative overflow-hidden">
@@ -230,29 +156,22 @@ const LoginForm: React.FC<LoginFormProps> = () => {
           <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-2xl">
             <form onSubmit={handleSubmit} className="space-y-4">
               
-              {/* Email/ID Field */}
+              {/* Employee ID Field */}
               <div>
                 <label className="flex items-center text-sm font-medium text-white/80 mb-2">
                   {getIdentifierIcon()}
-                  <span className="ml-2">Email or Employee ID</span>
+                  <span className="ml-2">Employee ID</span>
                 </label>
                 <div className="relative">
                   <input
                     type="text"
-                    name="identifier"
-                    value={formData.identifier}
+                    name="employeeId"
+                    value={formData.employeeId}
                     onChange={handleInputChange}
                     className={`w-full px-4 py-3 pr-12 bg-white/10 border rounded-xl text-white placeholder-white/40
-                             focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all duration-200 ${
-                               identifierValidation?.format === 'invalid' && formData.identifier.length > 0
-                                 ? 'border-red-400/50 focus:ring-red-400/50'
-                                 : identifierValidation?.format === 'employeeId'
-                                 ? 'border-green-400/50 focus:ring-green-400/50'
-                                 : identifierValidation?.format === 'email'
-                                 ? 'border-blue-400/50 focus:ring-blue-400/50'
-                                 : 'border-white/20 focus:ring-blue-400/50'
-                             }`}
-                    placeholder="Enter email or employee ID (e.g., A0001, S0001)"
+                             focus:outline-none focus:ring-2 focus:ring-opacity-50 transition-all duration-200
+                             border-white/20 focus:ring-blue-400/50`}
+                    placeholder="Enter employee ID (e.g., A0001, S0001, D0001)"
                     required
                   />
                   <button
@@ -295,9 +214,10 @@ const LoginForm: React.FC<LoginFormProps> = () => {
                     name="password"
                     value={formData.password}
                     onChange={handleInputChange}
-                    className="w-full px-4 py-3 pr-12 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 
+                    className="w-full px-4 py-3 pr-12 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40
                              focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-transparent transition-all duration-200"
-                    placeholder="Enter your password (optional for demo accounts)"
+                    placeholder="Enter your password"
+                    required
                   />
                   <button
                     type="button"
@@ -337,9 +257,9 @@ const LoginForm: React.FC<LoginFormProps> = () => {
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={loading || (identifierValidation?.format === 'invalid' && formData.identifier.length > 0)}
-                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 
-                         text-white py-3 px-6 rounded-xl font-semibold transition-all duration-200 
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700
+                         text-white py-3 px-6 rounded-xl font-semibold transition-all duration-200
                          hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed
                          flex items-center justify-center space-x-2"
               >
@@ -387,7 +307,10 @@ const LoginForm: React.FC<LoginFormProps> = () => {
                   ))}
                 </div>
                 <div className="mt-3 text-xs text-white/60 text-center">
-                  Firebase Authentication • Demo Users
+                  Employee ID Authentication • Demo Users
+                  <div className="mt-1 text-white/40">
+                    Password: WR2024 for all demo accounts
+                  </div>
                 </div>
               </div>
 

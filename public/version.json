@@ -1,10 +1,10 @@
 {
-  "version": "3.14.0",
-  "buildId": "d70f53b-1751963670395",
-  "buildTimestamp": 1751963670395,
-  "buildDate": "2025-07-08T08:34:30.418Z",
+  "version": "3.15.0",
+  "buildId": "d26bb59-1752827539573",
+  "buildTimestamp": 1752827539573,
+  "buildDate": "2025-07-18T08:32:19.628Z",
   "forceUpdate": false,
-  "minimumVersion": "3.14.0",
-  "updateMessage": "Version 3.14.0 is now available with new features and improvements.",
+  "minimumVersion": "3.15.0",
+  "updateMessage": "Version 3.15.0 is now available with new features and improvements.",
   "updateUrl": "https://your-app-domain.com"
 }

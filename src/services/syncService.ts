@@ -358,6 +358,7 @@ const syncFromServer = async (): Promise<void> => {
       // Skip if email is missing or invalid
       if (!userData.email) continue;
       const user: AppUser = {
+        employeeId: userData.employeeId || `EMP${Date.now()}`,
         uid: doc.id,
         email: userData.email,
         name: userData.name,
@@ -445,6 +446,7 @@ export const setupRealtimeListeners = (): (() => void)[] => {
             // Skip if email is missing or invalid
             if (!userData.email) return;
             const user: AppUser = {
+              employeeId: userData.employeeId || `EMP${Date.now()}`,
               uid: doc.id,
               email: userData.email,
               name: userData.name,

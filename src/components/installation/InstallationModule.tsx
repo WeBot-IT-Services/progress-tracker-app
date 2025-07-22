@@ -3,14 +3,12 @@ import { Hammer, Camera, CheckCircle, Image, Lock, ArrowRight, Calendar, Clock }
 import ModuleContainer from '../common/ModuleContainer';
 import { useAuth } from '../../contexts/AuthContext';
 import { projectsService, fileService, type Project } from '../../services/firebaseService';
-import { workflowService } from '../../services/workflowService';
-import { getModulePermissions } from '../../utils/permissions';
+import { getModulePermissions, getUserIdentifier } from '../../utils/permissions';
 import { safeFormatDate, formatDueDate, formatCompletionDate } from '../../utils/dateUtils';
-import { firebaseLogin } from '../../services/firebaseAuth';
 import ImageModal from '../common/ImageModal';
 
 const InstallationModule: React.FC = () => {
-  const { currentUser, isFirebaseMode, isLocalMode } = useAuth();
+  const { currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'wip' | 'history'>('wip');
   const [wipProjects, setWipProjects] = useState<Project[]>([]);
   const [historyProjects, setHistoryProjects] = useState<Project[]>([]);
@@ -39,23 +37,7 @@ const InstallationModule: React.FC = () => {
 
 
 
-  // Status color helper
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'sales':
-        return 'bg-green-100 text-green-800 border-green-200';
-      case 'dne':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'production':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
-      case 'installation':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'completed':
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
+
 
   // Load projects from Firebase with real-time updates
   useEffect(() => {
@@ -120,12 +102,12 @@ const InstallationModule: React.FC = () => {
 
       // Check user authentication (Firestore-based)
       if (!currentUser) {
-        console.error('❌ Not authenticated!');
+        console.error('Not authenticated!');
         alert('You must be logged in to upload photos.');
         return;
       }
 
-      console.log('🔍 Upload Debug Info:');
+      console.log('Upload Debug Info:');
       console.log('Current User:', currentUser);
       console.log('User Role:', currentUser.role);
       console.log('Permissions:', permissions);
@@ -149,7 +131,7 @@ const InstallationModule: React.FC = () => {
       const photoMetadata = uploadedUrls.map(url => ({
         url,
         date: currentDate,
-        uploadedBy: currentUser.uid,
+        uploadedBy: getUserIdentifier(currentUser),
         uploadedAt: new Date().toISOString()
       }));
 
@@ -248,7 +230,7 @@ const InstallationModule: React.FC = () => {
     }
   };
 
-  const handleCompleteInstallation = async (projectId: string, deliveryDate?: Date) => {
+  const handleCompleteInstallation = async (projectId: string) => {
     if (!permissions.canEdit) {
       alert('You do not have permission to complete installations.');
       return;
@@ -305,8 +287,8 @@ const InstallationModule: React.FC = () => {
         maxWidth="6xl"
         fullViewport={true}
       >
-      {/* Content */}
-      <div className="flex-1 flex flex-col min-h-0">
+      {/* Content - No top padding needed, ModuleContainer handles positioning */}
+      <div className="flex-1 flex flex-col min-h-0 pb-6 sm:pb-8 px-4 sm:px-6 lg:px-8">
         {/* Tab Navigation */}
         <div className="bg-white/80 backdrop-blur-sm rounded-xl p-1 mb-6 shadow-sm border border-white/50">
           <div className="flex">
@@ -318,7 +300,7 @@ const InstallationModule: React.FC = () => {
                   : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
               }`}
             >
-              🔨 WIP (Installation)
+              Manage Installation
             </button>
             <button
               onClick={() => setActiveTab('history')}
@@ -328,7 +310,7 @@ const InstallationModule: React.FC = () => {
                   : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
               }`}
             >
-              📊 History
+              Installation History
             </button>
           </div>
         </div>
@@ -354,7 +336,7 @@ const InstallationModule: React.FC = () => {
               </div>
             ) : (
               wipProjects.map((project) => (
-                <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300">
+                <div key={project.id} className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-gray-900 mb-2">{project.projectName}</h3>
@@ -400,8 +382,6 @@ const InstallationModule: React.FC = () => {
                         </div>
                       )}
 
-
-
                       {/* Action Buttons */}
                       <div className="flex flex-wrap gap-2">
                         {permissions.canEdit && (
@@ -417,7 +397,7 @@ const InstallationModule: React.FC = () => {
                               Upload Photos
                             </button>
                             <button
-                              onClick={() => handleCompleteInstallation(project.id!, new Date())}
+                              onClick={() => handleCompleteInstallation(project.id!)}
                               className="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1 rounded-lg text-sm transition-colors flex items-center"
                             >
                               <CheckCircle className="w-4 h-4 mr-1" />
@@ -460,7 +440,7 @@ const InstallationModule: React.FC = () => {
               </div>
             ) : (
               historyProjects.map((project) => (
-                <div key={project.id} className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-lg border border-white/50 hover:shadow-xl transition-all duration-300">
+                <div key={project.id} className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-gray-900 mb-2">{project.projectName}</h3>
@@ -524,7 +504,7 @@ const InstallationModule: React.FC = () => {
         {/* Photo Viewer Modal */}
         {showPhotoViewer && selectedProject && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
               <h3 className="text-xl font-semibold text-gray-900 mb-4">
                 Installation Photos
               </h3>
@@ -537,75 +517,83 @@ const InstallationModule: React.FC = () => {
                 {!selectedProject.files || selectedProject.files.length === 0 ? (
                   <p className="text-gray-500 text-center py-8">No photos uploaded yet</p>
                 ) : (
-                  (() => {
-                    // Group photos by date
-                    const photoGroups: { [key: string]: { files: string[], metadata: any[] } } = {};
-
-                    selectedProject.files.forEach((fileUrl, index) => {
-                      const metadata = selectedProject.photoMetadata?.[index];
-                      const date = metadata?.uploadedAt?.toDateString() || 'Unknown Date';
-
-                      if (!photoGroups[date]) {
-                        photoGroups[date] = { files: [], metadata: [] };
-                      }
-                      photoGroups[date].files.push(fileUrl);
-                      photoGroups[date].metadata.push(metadata);
-                    });
-
-                    return (
+                  <div className="space-y-6">
+                    {selectedProject.photoMetadata && selectedProject.photoMetadata.length > 0 ? (
                       <div className="space-y-6">
-                        {Object.entries(photoGroups).map(([date, group]) => (
-                          <div key={date} className="border border-gray-200 rounded-lg p-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <h4 className="font-medium text-gray-900">
-                                {safeFormatDate(date)}
+                        {Object.entries(selectedProject.photoMetadata.reduce((acc: any, photo: any, index: number) => {
+                            const date = photo.date || 'Unknown Date';
+                            if (!acc[date]) acc[date] = [];
+                            acc[date].push({
+                              ...photo,
+                              url: selectedProject.files![index] || photo.url
+                            });
+                            return acc;
+                          }, {}))
+                          .sort(([a], [b]) => new Date(b as string).getTime() - new Date(a as string).getTime())
+                          .map(([date, photos]: [string, any]) => (
+                            <div key={date} className="border border-gray-200 rounded-lg p-4">
+                              <h4 className="text-md font-semibold text-gray-800 mb-3 flex items-center">
+                                <Calendar className="w-5 h-5 mr-2 text-purple-600" />
+                                {safeFormatDate(date, 'Unknown Date', {
+                                  weekday: 'long',
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric'
+                                })}
                               </h4>
-                                <span className="text-sm text-gray-500">
-                                  {group.files.length} photo{group.files.length !== 1 ? 's' : ''}
-                                </span>
-                              </div>
 
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                {group.files.map((fileUrl, index) => (
-                                  <div key={index} className="bg-gray-50 rounded-lg overflow-hidden">
-                                    <img
-                                      src={fileUrl}
-                                      alt={`Installation photo ${index + 1}`}
-                                      className="w-full h-32 object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                                      onClick={() => {
-                                        // Prepare all photos for modal
-                                        const allPhotos = group.files.map((url: string, idx: number) => ({
-                                          id: `date-${date}-${idx}`,
-                                          url,
-                                          caption: `Installation Photo ${idx + 1}`,
-                                          uploadedAt: group.metadata[idx]?.uploadedAt || new Date(),
-                                          uploadedBy: group.metadata[idx]?.uploadedBy || 'Unknown'
-                                        }));
-                                        
-                                        setSelectedImages(allPhotos);
-                                        setSelectedImageIndex(index);
-                                        setShowImageModal(true);
-                                      }}
-                                      onError={(e) => {
-                                        (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlPC90ZXh0Pjwvc3ZnPg==';
-                                      }}
-                                    />
-                                    <div className="p-2">
-                                      <p className="text-xs text-gray-600">Photo {index + 1}</p>
-                                      {group.metadata[index] && (
-                                        <p className="text-xs text-gray-500">
-                                          Uploaded by: {group.metadata[index].uploadedBy}
-                                        </p>
-                                      )}
-                                    </div>
+                              {/* Group by milestone within the date */}
+                              {Object.entries(photos.reduce((acc: any, photo: any) => {
+                                const milestone = photo.milestoneId || 'General';
+                                if (!acc[milestone]) acc[milestone] = [];
+                                acc[milestone].push(photo);
+                                return acc;
+                              }, {})).map(([milestone, milestonePhotos]: [string, any]) => (
+                                <div key={milestone} className="mb-4 last:mb-0">
+                                  <h5 className="text-sm font-medium text-gray-600 mb-2 flex items-center">
+                                    <Clock className="w-4 h-4 mr-1 text-blue-500" />
+                                    {milestone === 'General' ? 'General Photos' : `Milestone: ${milestone}`}
+                                  </h5>
+                                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                    {milestonePhotos.map((photo: any, photoIndex: number) => (
+                                      <div key={photoIndex} className="relative group">
+                                        <img
+                                          src={photo.url}
+                                          alt={`Installation photo ${photoIndex + 1}`}
+                                          className="w-full h-32 object-cover rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                                          onClick={() => {
+                                            // Prepare all photos for modal
+                                            const allPhotos = milestonePhotos.map((p: any, idx: number) => ({
+                                              id: `milestone-${milestone}-${idx}`,
+                                              url: p.url,
+                                              caption: `${milestone === 'General' ? 'General Photo' : `Milestone: ${milestone}`} ${idx + 1}`,
+                                              uploadedAt: p.uploadedAt || new Date(),
+                                              uploadedBy: p.uploadedBy || 'Unknown'
+                                            }));
+                                            setSelectedImages(allPhotos);
+                                            setSelectedImageIndex(photoIndex);
+                                            setShowImageModal(true);
+                                          }}
+                                        />
+                                        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
+                                          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                                            </svg>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
-                              </div>
-                          </div>
-                        ))}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
                       </div>
-                    );
-                  })()
+                    ) : (
+                      <p className="text-gray-500 text-center py-8">No photos uploaded yet</p>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -615,7 +603,7 @@ const InstallationModule: React.FC = () => {
                     setShowPhotoViewer(false);
                     setSelectedProject(null);
                   }}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-xl transition-colors"
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-md transition-colors"
                 >
                   Close
                 </button>
@@ -624,10 +612,10 @@ const InstallationModule: React.FC = () => {
           </div>
         )}
 
-        {/* Enhanced Photo Upload Modal */}
+        {/* Photo Upload Modal */}
         {showPhotoUpload && selectedProject && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
               <h3 className="text-xl font-semibold text-gray-900 mb-4">
                 Upload Installation Photos
               </h3>
@@ -646,7 +634,7 @@ const InstallationModule: React.FC = () => {
                     multiple
                     accept="image/*"
                     onChange={(e) => setPhotos(e.target.files)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1">
@@ -662,14 +650,14 @@ const InstallationModule: React.FC = () => {
                       setSelectedProject(null);
                       setPhotos(null);
                     }}
-                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-xl transition-colors"
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-md transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={uploadingPhotos || !photos}
-                    className="flex-1 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 text-white py-2 px-4 rounded-xl transition-all duration-200"
+                    className="flex-1 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 text-white py-2 px-4 rounded-md transition-all duration-200"
                   >
                     {uploadingPhotos ? 'Uploading...' : 'Upload Photos'}
                   </button>
@@ -684,7 +672,7 @@ const InstallationModule: React.FC = () => {
       {/* Progress Update Modal */}
       {showProgressModal && selectedProject && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
               <h3 className="text-xl font-semibold text-gray-900 mb-4">
                 Update Installation Progress
               </h3>
@@ -700,7 +688,7 @@ const InstallationModule: React.FC = () => {
                   <textarea
                     value={progressUpdate}
                     onChange={(e) => setProgressUpdate(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Describe the installation progress..."
                     rows={4}
                     required
@@ -715,14 +703,14 @@ const InstallationModule: React.FC = () => {
                       setSelectedProject(null);
                       setProgressUpdate('');
                     }}
-                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-xl transition-colors"
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-md transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={!progressUpdate.trim()}
-                    className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-500 text-white py-2 px-4 rounded-xl transition-all duration-200"
+                    className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-500 text-white py-2 px-4 rounded-md transition-all duration-200"
                   >
                     Update Progress
                   </button>
@@ -732,174 +720,15 @@ const InstallationModule: React.FC = () => {
           </div>
         )}
 
-        {/* Photo Viewer Modal */}
-        {showPhotoViewer && selectedProject && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-semibold text-gray-900">
-                  Installation Photos - {selectedProject.projectName}
-                </h3>
-                <button
-                  onClick={() => {
-                    setShowPhotoViewer(false);
-                    setSelectedProject(null);
-                  }}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
 
-              {selectedProject.files && selectedProject.files.length > 0 ? (
-                <div>
-                  {/* Photo Organization by Date and Milestone */}
-                  {selectedProject.photoMetadata && selectedProject.photoMetadata.length > 0 ? (
-                    <div className="space-y-6">
-                      {(() => {
-                        // Group photos by date
-                        const photosByDate = selectedProject.photoMetadata.reduce((acc: any, photo: any, index: number) => {
-                          const date = photo.date || 'Unknown Date';
-                          if (!acc[date]) acc[date] = [];
-                          acc[date].push({
-                            ...photo,
-                            url: selectedProject.files![index] || photo.url
-                          });
-                          return acc;
-                        }, {});
-
-                        return Object.entries(photosByDate)
-                          .sort(([a], [b]) => new Date(b as string).getTime() - new Date(a as string).getTime())
-                          .map(([date, photos]: [string, any]) => (
-                            <div key={date} className="border border-gray-200 rounded-lg p-4">
-                              <h4 className="text-md font-semibold text-gray-800 mb-3 flex items-center">
-                                <Calendar className="w-5 h-5 mr-2 text-purple-600" />
-                                {safeFormatDate(date, 'Unknown Date', {
-                                  weekday: 'long',
-                                  year: 'numeric',
-                                  month: 'long',
-                                  day: 'numeric'
-                                })}
-                              </h4>
-
-                              {/* Group by milestone within the date */}
-                              {(() => {
-                                const photosByMilestone = photos.reduce((acc: any, photo: any) => {
-                                  const milestone = photo.milestoneId || 'General';
-                                  if (!acc[milestone]) acc[milestone] = [];
-                                  acc[milestone].push(photo);
-                                  return acc;
-                                }, {});
-
-                                return Object.entries(photosByMilestone).map(([milestone, milestonePhotos]: [string, any]) => (
-                                  <div key={milestone} className="mb-4 last:mb-0">
-                                    <h5 className="text-sm font-medium text-gray-600 mb-2 flex items-center">
-                                      <Clock className="w-4 h-4 mr-1 text-blue-500" />
-                                      {milestone === 'General' ? 'General Photos' : `Milestone: ${milestone}`}
-                                    </h5>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                                      {milestonePhotos.map((photo: any, photoIndex: number) => (
-                                        <div key={photoIndex} className="relative group">
-                                          <img
-                                            src={photo.url}
-                                            alt={`Installation photo ${photoIndex + 1}`}
-                                            className="w-full h-32 object-cover rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                                            onClick={() => {
-                                              // Prepare all photos for modal
-                                              const allPhotos = milestonePhotos.map((p: any, idx: number) => ({
-                                                id: `milestone-${milestone}-${idx}`,
-                                                url: p.url,
-                                                caption: `${milestone === 'General' ? 'General Photo' : `Milestone: ${milestone}`} ${idx + 1}`,
-                                                uploadedAt: p.uploadedAt || new Date(),
-                                                uploadedBy: p.uploadedBy || 'Unknown'
-                                              }));
-                                              
-                                              setSelectedImages(allPhotos);
-                                              setSelectedImageIndex(photoIndex);
-                                              setShowImageModal(true);
-                                            }}
-                                          />
-                                          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
-                                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
-                                              </svg>
-                                            </div>
-                                          </div>
-                                          {photo.uploadedAt && (
-                                            <div className="absolute bottom-1 left-1 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
-                                              {new Date(photo.uploadedAt).toLocaleTimeString('en-US', {
-                                                hour: '2-digit',
-                                                minute: '2-digit'
-                                              })}
-                                            </div>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ));
-                              })()}
-                            </div>
-                          ));
-                      })()}
-                    </div>
-                  ) : (
-                    // Fallback for projects without metadata
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {selectedProject.files.map((fileUrl: string, index: number) => (
-                        <div key={index} className="relative group">
-                          <img
-                            src={fileUrl}
-                            alt={`Installation photo ${index + 1}`}
-                            className="w-full h-32 object-cover rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                            onClick={() => {
-                              // Prepare all photos for modal
-                              const allPhotos = selectedProject.files.map((url: string, idx: number) => ({
-                                id: `fallback-${idx}`,
-                                url,
-                                caption: `Installation Photo ${idx + 1}`,
-                                uploadedAt: new Date(),
-                                uploadedBy: 'Unknown'
-                              }));
-                              
-                              setSelectedImages(allPhotos);
-                              setSelectedImageIndex(index);
-                              setShowImageModal(true);
-                            }}
-                          />
-                          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
-                              </svg>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <Image className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-600">No photos available for this project</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Image Modal */}
-        <ImageModal
-          isOpen={showImageModal}
-          onClose={() => setShowImageModal(false)}
-          images={selectedImages}
-          initialIndex={selectedImageIndex}
-          title="Installation Photos"
-        />
+      {/* Image Modal */}
+      <ImageModal
+        isOpen={showImageModal}
+        onClose={() => setShowImageModal(false)}
+        images={selectedImages}
+        initialIndex={selectedImageIndex}
+        title="Installation Photos"
+      />
     </>
   );
 };

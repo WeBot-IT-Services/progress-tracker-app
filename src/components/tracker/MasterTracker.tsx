@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Search, Clock, CheckCircle, AlertTriangle, Eye } from 'lucide-react';
+import { BarChart3, Search, Clock, CheckCircle, AlertTriangle, Eye, Trash2 } from 'lucide-react';
 import ModuleContainer from '../common/ModuleContainer';
-import ProjectDetailsModal from './ProjectDetailsModal';
+import SimpleProjectDetailsModal from './SimpleProjectDetailsModal';
 import { useAuth } from '../../contexts/AuthContext';
-import { projectsService, type Project, type Milestone } from '../../services/firebaseService';
-import { canViewAmount } from '../../utils/permissions';
-import { safeFormatDate } from '../../utils/dateUtils';
+import { projectsService, type Project } from '../../services/firebaseService';
+import { canViewAmount, canDeleteProject } from '../../utils/permissions';
+import { safeFormatDate, safeToDate, isValidDate } from '../../utils/dateUtils';
 
 interface ProjectWithMilestones extends Project {
-  milestones?: Milestone[];
   daysInStage?: number;
   isOverdue?: boolean;
 }
@@ -17,27 +16,27 @@ const MasterTracker: React.FC = () => {
   const { currentUser } = useAuth();
   const [projects, setProjects] = useState<ProjectWithMilestones[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingProject, setDeletingProject] = useState<string | null>(null);
+  const [lastClickTime, setLastClickTime] = useState<number>(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('all');
   const [teamFilter, setTeamFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'overview' | 'timeline' | 'cards' | 'table'>('overview');
-  const [selectedProject, setSelectedProject] = useState<ProjectWithMilestones | null>(null);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
-  // Helper function to safely convert Timestamp or Date to Date
-  const safeToDate = (dateValue: any): Date => {
-    if (!dateValue) return new Date();
-    if (typeof dateValue?.toDate === 'function') {
-      return dateValue.toDate();
+  // Prevent rapid clicks
+  const handleClick = (callback: () => void, minDelay: number = 300) => {
+    const now = Date.now();
+    if (now - lastClickTime > minDelay) {
+      setLastClickTime(now);
+      callback();
     }
-    if (dateValue instanceof Date) {
-      return dateValue;
-    }
-    return new Date(dateValue);
   };
 
-  // Get user permissions for amount visibility
+  // Get user permissions for amount visibility and deletion
   const canViewAmountField = canViewAmount(currentUser?.role || 'sales');
+  const canDeleteProjects = canDeleteProject(currentUser?.role || 'sales');
 
   // Load all projects with milestones
   useEffect(() => {
@@ -51,14 +50,19 @@ const MasterTracker: React.FC = () => {
           allProjects.map(async (project) => {
             const milestones = await projectsService.getMilestonesByProject(project.id!);
 
-            // Calculate days in current stage
+            // Calculate days in current stage - use safe date conversion
             const createdDate = safeToDate(project.createdAt);
             const today = new Date();
-            const daysInStage = Math.floor((today.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+            const daysInStage = createdDate 
+              ? Math.floor((today.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24))
+              : 0;
 
-            // Check if overdue
-            const deliveryDate = new Date(project.deliveryDate);
-            const isOverdue = today > deliveryDate && project.status !== 'completed';
+            // Check if overdue - handle invalid delivery dates safely
+            let isOverdue = false;
+            if (project.deliveryDate) {
+              const deliveryDate = safeToDate(project.deliveryDate);
+              isOverdue = deliveryDate ? (today > deliveryDate && project.status !== 'completed') : false;
+            }
 
             return {
               ...project,
@@ -80,6 +84,87 @@ const MasterTracker: React.FC = () => {
     loadProjectsData();
   }, []);
 
+  // Handle project deletion - only for admin users
+  const handleDeleteProject = async (projectId: string) => {
+    // Prevent multiple clicks
+    if (deletingProject) return;
+    
+    // Double-check permissions - only admin users can delete projects
+    if (!canDeleteProjects || currentUser?.role !== 'admin') {
+      alert('You do not have permission to delete projects. Only admin users can delete projects.');
+      return;
+    }
+
+    const project = projects.find(p => p.id === projectId);
+    const projectName = project?.projectName || 'Unknown Project';
+
+    // Enhanced confirmation dialog
+    const confirmMessage = `DELETE PROJECT CONFIRMATION
+
+Project: ${projectName}
+ID: ${projectId}
+
+This action will permanently delete:
+• The project and all its data
+• All associated milestones and images
+• All production and installation records
+• Any document locks and collaborative sessions
+• Related complaints and notifications
+
+This action CANNOT be undone.
+
+Are you absolutely sure you want to delete this project?`;
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      setDeletingProject(projectId);
+      console.log('🗑️ Starting comprehensive project deletion for:', projectName);
+      await projectsService.deleteProject(projectId);
+
+      // Reload projects to reflect changes
+      const updatedProjects = await projectsService.getProjects();
+
+      // Enhance projects with milestone data and calculations
+      const enhancedProjects = await Promise.all(
+        updatedProjects.map(async (project) => {
+          const milestones = await projectsService.getMilestonesByProject(project.id!);
+
+          // Calculate days in current stage - use safe date conversion
+          const createdDate = safeToDate(project.createdAt);
+          const today = new Date();
+          const daysInStage = createdDate 
+            ? Math.floor((today.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24))
+            : 0;
+
+          // Check if overdue - handle invalid delivery dates safely
+          let isOverdue = false;
+          if (project.deliveryDate) {
+            const deliveryDate = safeToDate(project.deliveryDate);
+            isOverdue = deliveryDate ? (today > deliveryDate && project.status !== 'completed') : false;
+          }
+
+          return {
+            ...project,
+            milestones,
+            daysInStage,
+            isOverdue
+          } as ProjectWithMilestones;
+        })
+      );
+
+      setProjects(enhancedProjects);
+
+      alert(`Project "${projectName}" has been successfully deleted along with all associated data.`);
+      console.log('Project deletion completed successfully');
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      alert(`Failed to delete project "${projectName}". Please try again.\n\nError: ${error.message}`);
+    } finally {
+      setDeletingProject(null);
+    }
+  };
+
   // All users can see all projects - no role-based filtering
   // Role-based information visibility is handled within the display components
   const roleFilteredProjects = projects;
@@ -92,7 +177,11 @@ const MasterTracker: React.FC = () => {
     const matchesStatus = statusFilter === 'all' || project.status === statusFilter;
 
     const matchesDate = dateFilter === 'all' || (() => {
-      const projectDate = new Date(project.deliveryDate);
+      if (!project.deliveryDate) return false;
+      
+      const projectDate = safeToDate(project.deliveryDate);
+      if (!projectDate) return false;
+      
       const today = new Date();
       const thirtyDaysFromNow = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
 
@@ -206,7 +295,7 @@ const MasterTracker: React.FC = () => {
     <>
       <ModuleContainer
         title="Master Tracker"
-        subtitle="Read-only overview of all projects and stages across all departments - No editing allowed"
+        subtitle=""
         icon={BarChart3}
         iconColor="text-white"
         iconBgColor="bg-gradient-to-r from-red-500 to-red-600"
@@ -223,8 +312,8 @@ const MasterTracker: React.FC = () => {
           </div>
         }
     >
-      {/* Content */}
-      <div className="flex-1 flex flex-col min-h-0">
+      {/* Content - Positioned properly by ModuleContainer */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-6">
         {/* Statistics Overview - All projects visible to all users */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 shadow-lg border border-white/50">
@@ -280,7 +369,7 @@ const MasterTracker: React.FC = () => {
             {/* <h3 className="text-lg font-semibold text-gray-900">View Mode</h3> */}
             <div className="flex items-center space-x-2">
               <button
-                onClick={() => setViewMode('overview')}
+                onClick={() => handleClick(() => setViewMode('overview'))}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   viewMode === 'overview'
                     ? 'bg-red-500 text-white shadow-md'
@@ -290,7 +379,7 @@ const MasterTracker: React.FC = () => {
                 Overview
               </button>
               <button
-                onClick={() => setViewMode('timeline')}
+                onClick={() => handleClick(() => setViewMode('timeline'))}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   viewMode === 'timeline'
                     ? 'bg-red-500 text-white shadow-md'
@@ -300,7 +389,7 @@ const MasterTracker: React.FC = () => {
                 Timeline
               </button>
               <button
-                onClick={() => setViewMode('cards')}
+                onClick={() => handleClick(() => setViewMode('cards'))}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   viewMode === 'cards'
                     ? 'bg-red-500 text-white shadow-md'
@@ -310,7 +399,7 @@ const MasterTracker: React.FC = () => {
                 Cards
               </button>
               <button
-                onClick={() => setViewMode('table')}
+                onClick={() => handleClick(() => setViewMode('table'))}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   viewMode === 'table'
                     ? 'bg-red-500 text-white shadow-md'
@@ -500,23 +589,43 @@ const MasterTracker: React.FC = () => {
                     {filteredProjects.map((project) => {
                       const getModuleDeliveryInfo = (project: ProjectWithMilestones) => {
                         const createdDate = safeToDate(project.createdAt);
-                        const deliveryDate = new Date(project.deliveryDate);
+                        const deliveryDate = safeToDate(project.deliveryDate);
 
                         return {
-                          projectStart: safeFormatDate(createdDate),
-                          salesCompleted: project.salesData?.completedAt ?
-                            safeFormatDate(safeToDate(project.salesData.completedAt)) :
-                            (project.status === 'sales' ? 'In Progress' : 'Not Started'),
-                          designCompleted: project.designData?.completedAt ?
-                            safeFormatDate(safeToDate(project.designData.completedAt)) :
-                            (project.status === 'dne' ? 'In Progress' : 'Not Started'),
-                          productionCompleted: project.productionData?.completedAt ?
-                            safeFormatDate(safeToDate(project.productionData.completedAt)) :
-                            (project.status === 'production' ? 'In Progress' : 'Not Started'),
-                          installationCompleted: project.installationData?.completedAt ?
-                            safeFormatDate(safeToDate(project.installationData.completedAt)) :
-                            (project.status === 'installation' ? 'In Progress' : 'Not Started'),
-                          expectedCompletion: safeFormatDate(deliveryDate),
+                          projectStart: createdDate ? safeFormatDate(createdDate, 'Not set') : 'Not set',
+                          salesCompleted: project.salesData?.completedAt
+                            ? safeFormatDate(safeToDate(project.salesData.completedAt), 'Not completed')
+                            : (project.status === 'sales'
+                                ? 'In Progress'
+                                : (['dne', 'production', 'installation', 'completed'].includes(project.status))
+                                  ? (createdDate ? safeFormatDate(createdDate, 'Not set') : 'Not set')
+                                  : 'Not Started'),
+                          designCompleted: project.designData?.completedAt
+                            ? safeFormatDate(safeToDate(project.designData.completedAt), 'Not completed')
+                            : project.designData?.partialCompletedAt
+                              ? safeFormatDate(safeToDate(project.designData.partialCompletedAt), 'Not completed')
+                              : (project.status === 'dne' 
+                                  ? 'In Progress' 
+                                  : (['production', 'installation', 'completed'].includes(project.status))
+                                    ? (project.designData?.lastModified 
+                                        ? safeFormatDate(safeToDate(project.designData.lastModified), 'Completed') 
+                                        : 'Completed')
+                                    : 'Not Started'),
+                          productionCompleted: project.productionData?.completedAt
+                            ? safeFormatDate(safeToDate(project.productionData.completedAt), 'Not completed')
+                            : (project.status === 'production' 
+                                ? 'In Progress' 
+                                : (['installation', 'completed'].includes(project.status))
+                                  ? 'Completed'
+                                  : 'Not Started'),
+                          installationCompleted: project.installationData?.completedAt
+                            ? safeFormatDate(safeToDate(project.installationData.completedAt), 'Not completed')
+                            : (project.status === 'installation' 
+                                ? 'In Progress' 
+                                : (project.status === 'completed')
+                                  ? 'Completed'
+                                  : 'Not Started'),
+                          expectedCompletion: deliveryDate ? safeFormatDate(deliveryDate, 'Not set') : 'Not set',
                           currentStatus: project.status
                         };
                       };
@@ -738,7 +847,9 @@ const MasterTracker: React.FC = () => {
                                   </div>
                                   <div>
                                     <p className="text-gray-500">Due Date</p>
-                                    <p className="font-medium">{safeFormatDate(project.deliveryDate)}</p>
+                                    <p className="font-medium">
+                                      {project.deliveryDate ? safeFormatDate(project.deliveryDate, 'Not set') : 'Not set'}
+                                    </p>
                                   </div>
                                   <div>
                                     <p className="text-gray-500">Days in Stage</p>
@@ -767,12 +878,29 @@ const MasterTracker: React.FC = () => {
                                 </div>
                               </div>
 
-                              <button
-                                onClick={() => setSelectedProject(project)}
-                                className="ml-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
+                              <div className="ml-4 flex items-center space-x-2">
+                                <button
+                                  onClick={() => handleClick(() => setSelectedProject(project))}
+                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                  title="View project details"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                                {canDeleteProjects && (
+                                  <button
+                                    onClick={() => handleDeleteProject(project.id!)}
+                                    disabled={deletingProject === project.id}
+                                    className={`p-2 rounded-lg transition-colors ${
+                                      deletingProject === project.id
+                                        ? 'text-gray-400 cursor-not-allowed'
+                                        : 'text-red-400 hover:text-red-600 hover:bg-red-50'
+                                    }`}
+                                    title={deletingProject === project.id ? 'Deleting...' : 'Delete project'}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -839,7 +967,7 @@ const MasterTracker: React.FC = () => {
                         <div className="flex justify-between">
                           <span className="text-gray-500">Due Date</span>
                           <span className={`font-medium ${project.isOverdue ? 'text-red-600' : ''}`}>
-                            {safeFormatDate(project.deliveryDate)}
+                            {project.deliveryDate ? safeFormatDate(project.deliveryDate, 'Not set') : 'Not set'}
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -858,12 +986,28 @@ const MasterTracker: React.FC = () => {
                       )}
 
                       <div className="mt-auto pt-4">
-                        <button
-                          onClick={() => setSelectedProject(project)}
-                          className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-2 px-4 rounded-lg transition-all duration-200 font-medium"
-                        >
-                          View Details
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleClick(() => setSelectedProject(project))}
+                            className="flex-1 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-2 px-4 rounded-lg transition-all duration-200 font-medium"
+                          >
+                            View Details
+                          </button>
+                          {canDeleteProjects && (
+                            <button
+                              onClick={() => handleDeleteProject(project.id!)}
+                              disabled={deletingProject === project.id}
+                              className={`px-3 py-2 rounded-lg transition-all duration-200 flex items-center justify-center ${
+                                deletingProject === project.id
+                                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                  : 'bg-red-100 hover:bg-red-200 text-red-700'
+                              }`}
+                              title={deletingProject === project.id ? 'Deleting...' : 'Delete project'}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))
@@ -960,7 +1104,7 @@ const MasterTracker: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               <span className={project.isOverdue ? 'text-red-600 font-medium' : ''}>
-                                {safeFormatDate(project.deliveryDate)}
+                                {project.deliveryDate ? safeFormatDate(project.deliveryDate, 'Not set') : 'Not set'}
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -972,12 +1116,24 @@ const MasterTracker: React.FC = () => {
                               </td>
                             )}
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <button
-                                onClick={() => setSelectedProject(project)}
-                                className="text-red-600 hover:text-red-900"
-                              >
-                                View
-                              </button>
+                              <div className="flex items-center space-x-3">
+                                <button
+                                  onClick={() => handleClick(() => setSelectedProject(project))}
+                                  className="text-red-600 hover:text-red-900"
+                                >
+                                  View
+                                </button>
+                                {canDeleteProjects && (
+                                  <button
+                                    onClick={() => handleDeleteProject(project.id!)}
+                                    disabled={deletingProject === project.id}
+                                    className={deletingProject === project.id ? 'text-gray-400 cursor-not-allowed' : 'text-red-600 hover:text-red-900'}
+                                    title={deletingProject === project.id ? 'Deleting...' : 'Delete project'}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -992,9 +1148,9 @@ const MasterTracker: React.FC = () => {
       </div>
       </ModuleContainer>
 
-      {/* Enhanced Project Detail Modal */}
+      {/* Simple Project Detail Modal */}
       {selectedProject && (
-        <ProjectDetailsModal
+        <SimpleProjectDetailsModal
           project={selectedProject}
           onClose={() => setSelectedProject(null)}
         />

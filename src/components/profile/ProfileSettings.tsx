@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import ModuleContainer from '../common/ModuleContainer';
-import { User, Mail, Shield, Calendar, Clock, Save, Edit3, Key } from 'lucide-react';
+import { User, Shield, Calendar, Clock, Save, Edit3, Key } from 'lucide-react';
 
 const ProfileSettings: React.FC = () => {
   const { currentUser } = useAuth();
@@ -96,18 +96,6 @@ const ProfileSettings: React.FC = () => {
                 )}
               </div>
 
-              {/* Email */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <Mail className="w-4 h-4 inline mr-2" />
-                  Email Address
-                </label>
-                <div className="px-4 py-3 bg-gray-50 rounded-xl text-gray-600">
-                  {currentUser?.email || 'Not set'}
-                  <span className="text-xs text-gray-500 ml-2">(Cannot be changed)</span>
-                </div>
-              </div>
-
               {/* Employee ID */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -116,7 +104,7 @@ const ProfileSettings: React.FC = () => {
                 </label>
                 <div className="px-4 py-3 bg-gray-50 rounded-xl text-gray-600 font-mono">
                   {currentUser?.employeeId || 'Not assigned'}
-                  <span className="text-xs text-gray-500 ml-2">(Contact admin to change)</span>
+                  <span className="text-xs text-gray-500 ml-2">(Primary identifier - contact admin to change)</span>
                 </div>
               </div>
 

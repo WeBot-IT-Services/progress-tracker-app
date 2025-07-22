@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import NetworkStatus from '../common/NetworkStatus';
-import SyncStatusDashboard from '../common/SyncStatusDashboard';
 import MysteelLogo from '../common/MysteelLogo';
 import VersionDisplay from '../common/VersionDisplay';
 import { statisticsService } from '../../services/firebaseService';
@@ -34,7 +33,6 @@ const Dashboard: React.FC = () => {
     totalComplaints: 0
   });
   const [loading, setLoading] = useState(true);
-  const [showSyncDashboard, setShowSyncDashboard] = useState(false);
   const [isStatsCollapsed, setIsStatsCollapsed] = useState(true);
 
   // Load statistics from Firebase
@@ -193,14 +191,14 @@ const Dashboard: React.FC = () => {
               </div>
 
               {/* Sync Status Button */}
-              <button
+              {/* <button
                 onClick={() => setShowSyncDashboard(true)}
                 className="flex items-center space-x-1 sm:space-x-2 bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 sm:px-4 py-2 rounded-xl transition-all duration-200 hover:shadow-md group"
                 title="View sync status"
               >
                 <Activity className="h-4 w-4" />
                 <span className="hidden sm:inline text-sm font-medium">Sync</span>
-              </button>
+              </button> */}
 
               {/* Profile Settings Button */}
               <button
@@ -235,8 +233,8 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Enhanced Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Enhanced Main Content - Fixed mobile spacing */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-8 sm:pt-6 sm:pb-8">
         {/* Welcome Section */}
         <div className="mb-8 sm:mb-12">
           <div className="text-center mb-6 sm:mb-8 animate-fade-in">
@@ -431,12 +429,6 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       </footer> */}
-
-      {/* Sync Status Dashboard */}
-      <SyncStatusDashboard
-        isOpen={showSyncDashboard}
-        onClose={() => setShowSyncDashboard(false)}
-      />
     </div>
   );
 };
